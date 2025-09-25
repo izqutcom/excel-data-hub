@@ -722,6 +722,12 @@ async fn home_handler() -> Html<&'static str> {
 
         // 选择单元格
         function selectCell(cell, event) {
+            // 移除输入框焦点，确保表格操作时焦点不在输入框内
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput && document.activeElement === searchInput) {
+                searchInput.blur();
+            }
+            
             if (event.shiftKey && lastClickedCell) {
                 // Shift键选择范围
                 selectRange(lastClickedCell, cell);
@@ -959,6 +965,20 @@ async fn home_handler() -> Html<&'static str> {
         document.addEventListener('keydown', function(event) {
             // Ctrl+C 或 Cmd+C 复制选中内容
             if ((event.ctrlKey || event.metaKey) && event.key === 'c') {
+                // 检查焦点是否在输入框内
+                const activeElement = document.activeElement;
+                const isInputFocused = activeElement && (
+                    activeElement.tagName === 'INPUT' || 
+                    activeElement.tagName === 'TEXTAREA' ||
+                    activeElement.contentEditable === 'true'
+                );
+                
+                // 如果焦点在输入框内，允许默认行为（复制输入框选中的文本）
+                if (isInputFocused) {
+                    return; // 不阻止默认行为，让浏览器处理输入框的复制
+                }
+                
+                // 如果焦点不在输入框内，且有选中的表格单元格，则复制表格数据
                 if (selectedCells.size > 0) {
                     event.preventDefault();
                     copySelectedCells();
@@ -967,6 +987,20 @@ async fn home_handler() -> Html<&'static str> {
             
             // Ctrl+A 或 Cmd+A 全选当前表格
             if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+                // 检查焦点是否在输入框内
+                const activeElement = document.activeElement;
+                const isInputFocused = activeElement && (
+                    activeElement.tagName === 'INPUT' || 
+                    activeElement.tagName === 'TEXTAREA' ||
+                    activeElement.contentEditable === 'true'
+                );
+                
+                // 如果焦点在输入框内，允许默认行为（选择输入框文本）
+                if (isInputFocused) {
+                    return; // 不阻止默认行为，让浏览器处理输入框的全选
+                }
+                
+                // 如果焦点不在输入框内，且有表格数据，则全选表格
                 const allCells = document.querySelectorAll('.excel-cell');
                 if (allCells.length > 0) {
                     event.preventDefault();
