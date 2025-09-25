@@ -12,6 +12,7 @@ pub struct Model {
     #[sea_orm(column_type = "TimestampWithTimeZone")]
     pub import_time: DateTime<Utc>,
     pub row_number: i32,
+    pub sheet_name: String,
     #[sea_orm(column_type = "Json")]
     pub data_json: JsonValue,
     pub search_text: String,

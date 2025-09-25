@@ -37,6 +37,7 @@ async fn create_tables_if_not_exists(db: &DatabaseConnection) -> Result<(), DbEr
             file_name TEXT NOT NULL,
             file_size BIGINT NOT NULL,
             file_hash TEXT NOT NULL,
+            field_order JSONB,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         )
@@ -55,6 +56,7 @@ async fn create_tables_if_not_exists(db: &DatabaseConnection) -> Result<(), DbEr
             file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
             import_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
             row_number INTEGER NOT NULL,
+            sheet_name TEXT NOT NULL DEFAULT 'Sheet1',
             data_json JSONB NOT NULL,
             search_text TEXT NOT NULL
         )

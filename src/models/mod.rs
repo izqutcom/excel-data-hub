@@ -11,9 +11,11 @@ pub struct ExcelData {
     pub file_id: i32,
     pub import_time: DateTime<Utc>,
     pub row_number: i32,
+    pub sheet_name: String,
     pub data_json: String,
     pub search_text: String,
     pub file_name: Option<String>,
+    pub field_order: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

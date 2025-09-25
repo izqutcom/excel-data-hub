@@ -65,6 +65,7 @@ impl ExcelProcessor {
                     file_name: Set(file_model.file_name.clone()),
                     file_size: Set(file_size),
                     file_hash: Set(file_hash),
+                    field_order: Set(file_model.field_order),
                     created_at: Set(file_model.created_at),
                     updated_at: Set(now),
                 };
@@ -80,6 +81,7 @@ impl ExcelProcessor {
                     file_name: Set(file_name),
                     file_size: Set(file_size),
                     file_hash: Set(file_hash),
+                    field_order: Set(None),
                     created_at: Set(now),
                     updated_at: Set(now),
                 };
@@ -126,85 +128,109 @@ impl ExcelProcessor {
     async fn read_excel_file(
         &self,
         file_path: &str,
-    ) -> Result<Vec<HashMap<String, Value>>, Box<dyn std::error::Error>> {
+    ) -> Result<(Vec<(String, Vec<HashMap<String, Value>>)>, Vec<String>), Box<dyn std::error::Error>> {
         let mut workbook = open_workbook_auto(file_path)?;
         let sheet_names = workbook.sheet_names().to_owned();
 
         if sheet_names.is_empty() {
-            return Ok(vec![]);
+            return Ok((vec![], vec![]));
         }
 
-        let sheet_name = &sheet_names[0];
-        let range = workbook
-            .worksheet_range(sheet_name)
-            .map_err(|_| "无法读取工作表".to_string())?;
+        let mut all_sheets_data = Vec::new();
+        let mut all_headers = Vec::new();
 
-        let mut rows_data = Vec::new();
-
-        if range.rows().count() == 0 {
-            return Ok(vec![]);
-        }
-
-        // 获取列标题
-        let headers: Vec<String> = range
-            .rows()
-            .next()
-            .unwrap()
-            .iter()
-            .map(|cell| {
-                match cell.to_string() {
-                    s if s.is_empty() => "EMPTY".to_string(),
-                    s => s,
+        // 遍历所有工作表
+        for sheet_name in &sheet_names {
+            let range = match workbook.worksheet_range(sheet_name) {
+                Ok(range) => range,
+                Err(_) => {
+                    info!("跳过无法读取的工作表: {}", sheet_name);
+                    continue;
                 }
-            })
-            .collect();
+            };
 
-        // 处理数据行
-        for (_row_idx, row) in range.rows().enumerate().skip(1) {
-            let mut row_data = HashMap::new();
+            let mut rows_data = Vec::new();
 
-            for (col_idx, cell) in row.iter().enumerate() {
-                if col_idx < headers.len() {
-                    let cell_str = cell.to_string();
-                    let value = if cell_str.is_empty() {
-                        Value::Null
-                    } else {
-                        // 检查是否为纯数字字符串
-                        if cell_str.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == '+') {
-                            // 如果数字长度超过15位，或者包含前导零，保持为字符串
-                            // 这样可以避免身份证号码、电话号码等被错误转换
-                            if cell_str.len() > 15 || (cell_str.len() > 1 && cell_str.starts_with('0') && !cell_str.contains('.')) {
-                                Value::String(cell_str)
-                            } else if let Ok(num) = cell_str.parse::<f64>() {
-                                // 检查转换后的数字是否与原字符串一致（避免精度丢失）
-                                let num_str = num.to_string();
-                                if num_str == cell_str || (num.fract() == 0.0 && num.to_string().replace(".0", "") == cell_str) {
-                                    Value::Number(serde_json::Number::from_f64(num).unwrap_or_else(|| serde_json::Number::from(0)))
+            if range.rows().count() == 0 {
+                info!("工作表 {} 为空，跳过", sheet_name);
+                continue;
+            }
+
+            // 获取列标题
+            let headers: Vec<String> = range
+                .rows()
+                .next()
+                .unwrap()
+                .iter()
+                .map(|cell| {
+                    match cell.to_string() {
+                        s if s.is_empty() => "EMPTY".to_string(),
+                        s => s,
+                    }
+                })
+                .collect();
+
+            // 处理数据行
+            for (_row_idx, row) in range.rows().enumerate().skip(1) {
+                let mut row_data = HashMap::new();
+
+                for (col_idx, cell) in row.iter().enumerate() {
+                    if col_idx < headers.len() {
+                        let cell_str = cell.to_string();
+                        let value = if cell_str.is_empty() {
+                            Value::Null
+                        } else {
+                            // 检查是否为纯数字字符串
+                            if cell_str.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == '+') {
+                                // 如果数字长度超过15位，或者包含前导零，保持为字符串
+                                // 这样可以避免身份证号码、电话号码等被错误转换
+                                if cell_str.len() > 15 || (cell_str.len() > 1 && cell_str.starts_with('0') && !cell_str.contains('.')) {
+                                    Value::String(cell_str)
+                                } else if let Ok(num) = cell_str.parse::<f64>() {
+                                    // 检查转换后的数字是否与原字符串一致（避免精度丢失）
+                                    let num_str = num.to_string();
+                                    if num_str == cell_str || (num.fract() == 0.0 && num.to_string().replace(".0", "") == cell_str) {
+                                        Value::Number(serde_json::Number::from_f64(num).unwrap_or_else(|| serde_json::Number::from(0)))
+                                    } else {
+                                        // 如果转换后不一致，说明有精度丢失，保持为字符串
+                                        Value::String(cell_str)
+                                    }
                                 } else {
-                                    // 如果转换后不一致，说明有精度丢失，保持为字符串
                                     Value::String(cell_str)
                                 }
                             } else {
                                 Value::String(cell_str)
                             }
-                        } else {
-                            Value::String(cell_str)
-                        }
-                    };
-                    row_data.insert(headers[col_idx].clone(), value);
+                        };
+                        row_data.insert(headers[col_idx].clone(), value);
+                    }
+                }
+
+                if !row_data.is_empty() {
+                    rows_data.push(row_data);
                 }
             }
 
-            if !row_data.is_empty() {
-                rows_data.push(row_data);
+            if !rows_data.is_empty() {
+                info!("工作表 {} 读取完成，共 {} 行数据", sheet_name, rows_data.len());
+                all_sheets_data.push((sheet_name.clone(), rows_data));
+                
+                // 收集所有唯一的列标题
+                for header in headers {
+                    if !all_headers.contains(&header) {
+                        all_headers.push(header);
+                    }
+                }
+            } else {
+                info!("工作表 {} 没有有效数据", sheet_name);
             }
         }
 
-        Ok(rows_data)
+        Ok((all_sheets_data, all_headers))
     }
 
     /// 插入Excel数据到数据库
-    async fn insert_excel_data(&self, file_id: i32, rows_data: Vec<HashMap<String, Value>>) -> Result<bool, sea_orm::DbErr> {
+    async fn insert_excel_data(&self, file_id: i32, sheet_name: &str, rows_data: Vec<HashMap<String, Value>>) -> Result<bool, sea_orm::DbErr> {
         if rows_data.is_empty() {
             return Ok(true);
         }
@@ -246,6 +272,7 @@ impl ExcelProcessor {
                 row_number: Set((index + 1) as i32),
                 data_json: Set(serde_json::to_value(row_data.clone()).unwrap_or_default()),
                 search_text: Set(search_text),
+                sheet_name: Set(sheet_name.to_string()),
             };
 
             records.push(record);
@@ -262,7 +289,7 @@ impl ExcelProcessor {
 
             txn.commit().await?;
 
-            info!("成功导入文件ID {}，共 {} 条记录", file_id, rows_data.len());
+            info!("成功导入文件ID {}，工作表 {}，共 {} 条记录", file_id, sheet_name, rows_data.len());
             Ok(true)
         } else {
             info!("文件ID {} 没有数据", file_id);
@@ -440,26 +467,60 @@ impl ExcelProcessor {
         info!("已删除文件 {} 的现有数据", file_path);
 
         // 读取Excel文件
-        let rows_data = match self.read_excel_file(file_path).await {
-            Ok(data) => {
-                info!("文件读取成功 {}: 共 {} 行数据", file_path, data.len());
-                data
+        let (all_sheets_data, field_order) = match self.read_excel_file(file_path).await {
+            Ok((data, headers)) => {
+                let total_rows: usize = data.iter().map(|(_, rows)| rows.len()).sum();
+                info!("文件读取成功 {}: 共 {} 个工作表，{} 行数据", file_path, data.len(), total_rows);
+                (data, headers)
             },
             Err(e) => {
                 return Err(format!("文件读取失败 {}: {}", file_path, e).into());
             }
         };
 
-        // 插入数据
-        match self.insert_excel_data(file_id, rows_data).await {
-            Ok(_) => {
-                info!("文件数据导入成功: {}", file_path);
-                Ok(())
-            },
-            Err(e) => {
-                Err(format!("文件数据导入失败 {}: {}", file_path, e).into())
+        // 更新文件的字段顺序信息
+        if let Err(e) = self.update_file_field_order(file_id, &field_order).await {
+            error!("更新文件字段顺序失败 {}: {}", file_path, e);
+        }
+
+        // 插入每个工作表的数据
+        for (sheet_name, rows_data) in all_sheets_data {
+            match self.insert_excel_data(file_id, &sheet_name, rows_data).await {
+                Ok(_) => {
+                    info!("工作表 {} 数据导入成功", sheet_name);
+                },
+                Err(e) => {
+                    error!("工作表 {} 数据导入失败: {}", sheet_name, e);
+                    return Err(format!("工作表 {} 数据导入失败: {}", sheet_name, e).into());
+                }
             }
         }
+
+        info!("文件数据导入成功: {}", file_path);
+        Ok(())
+    }
+
+    /// 更新文件的字段顺序信息
+    async fn update_file_field_order(&self, file_id: i32, field_order: &[String]) -> Result<(), sea_orm::DbErr> {
+        use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+        
+        // 将字段顺序转换为JSON
+        let field_order_json = serde_json::to_value(field_order)
+            .map_err(|e| sea_orm::DbErr::Custom(format!("序列化字段顺序失败: {}", e)))?;
+        
+        // 查找文件记录
+        let file_model = files::Entity::find_by_id(file_id)
+            .one(&self.db)
+            .await?;
+        
+        if let Some(file) = file_model {
+            let mut file_active: files::ActiveModel = file.into();
+            file_active.field_order = Set(Some(field_order_json));
+            file_active.updated_at = Set(chrono::Utc::now());
+            file_active.update(&self.db).await?;
+        }
+        
+        Ok(())
     }
 
     /// 搜索数据
@@ -510,7 +571,9 @@ impl ExcelProcessor {
                 row_number: excel_model.row_number,
                 data_json: excel_model.data_json.to_string(),
                 search_text: excel_model.search_text,
-                file_name: file_model.map(|f| f.file_name),
+                sheet_name: excel_model.sheet_name,
+                file_name: file_model.as_ref().map(|f| f.file_name.clone()),
+                field_order: file_model.and_then(|f| f.field_order),
             })
             .collect();
 

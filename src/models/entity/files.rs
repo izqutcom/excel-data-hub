@@ -12,6 +12,8 @@ pub struct Model {
     pub file_name: String,
     pub file_size: i64,
     pub file_hash: String,
+    #[sea_orm(column_type = "Json", nullable)]
+    pub field_order: Option<serde_json::Value>,
     #[sea_orm(column_type = "TimestampWithTimeZone")]
     pub created_at: DateTime<Utc>,
     #[sea_orm(column_type = "TimestampWithTimeZone")]

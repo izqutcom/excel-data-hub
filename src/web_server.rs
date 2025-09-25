@@ -640,6 +640,9 @@ async fn home_handler() -> Html<&'static str> {
                                             <th class="excel-row-header p-2">#</th>
                 `;
 
+                // 添加工作表名称列到表头
+                html += `<th class="excel-header p-2 text-left min-w-32">工作表</th>`;
+                
                 // 表头
                 columns.forEach(col => {
                     html += `<th class="excel-header p-2 text-left min-w-32">${col}</th>`;
@@ -656,6 +659,23 @@ async fn home_handler() -> Html<&'static str> {
                     const globalRowNum = data.results.findIndex(r => r === item) + 1;
                     html += `<tr>`;
                     html += `<td class="excel-row-header p-2">${globalRowNum}</td>`;
+                    
+                    // 添加工作表名称列
+                    const sheetName = item.sheet_name || 'Sheet1';
+                    const highlightedSheetName = highlightKeywords(sheetName, keywords);
+                    html += `
+                        <td class="excel-cell p-2 text-sm cursor-pointer bg-blue-50" 
+                            onclick="selectCell(this, event)" 
+                            onmousedown="startSelection(this, event)"
+                            onmouseenter="extendSelection(this, event)"
+                            onmouseup="endSelection(event)"
+                            data-row="${globalRowNum}" 
+                            data-col="工作表"
+                            data-file="${fileName}"
+                            title="${sheetName}">
+                            <div class="truncate max-w-48 font-medium text-blue-700">${highlightedSheetName}</div>
+                        </td>
+                    `;
 
                     let dataObj = {};
                     try {
