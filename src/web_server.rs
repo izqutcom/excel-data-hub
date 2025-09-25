@@ -1,6 +1,6 @@
 use crate::models::{SearchResponse, StatsResponse, LanguageResponse, TranslationResponse, 
-                   BatchTranslationResponse, TranslationRequest, BatchTranslationRequest, 
-                   LanguageSettingRequest, I18nStatusResponse};
+                   BatchTranslationResponse, BatchTranslationRequest, 
+                   I18nStatusResponse};
 use crate::i18n_manager::I18nManager;
 use axum::{
     extract::{Query, State, Path},
@@ -16,7 +16,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tower_http::cors::CorsLayer;
-use tracing::{info, debug, error};
+use tracing::{info, debug};
 
 #[derive(Clone)]
 struct StatsCache {

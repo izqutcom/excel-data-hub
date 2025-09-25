@@ -8,7 +8,6 @@ mod i18n_manager;
 use database_sea::connect_database;
 use excel_processor_sea::ExcelProcessor;
 use std::env;
-use std::error::Error;
 use tracing::{info, error};
 
 #[tokio::main]

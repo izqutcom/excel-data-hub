@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
-use tracing::{info, warn, error, debug};
+use tracing::{info, warn, debug};
 use axum::http::HeaderMap;
 
 /// 语言信息结构
@@ -271,6 +271,7 @@ impl I18nManager {
     }
 
     /// 清理过期缓存
+    #[allow(dead_code)]
     pub fn cleanup_cache(&self) {
         let mut cache = self.cache.write().unwrap();
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -311,6 +312,7 @@ impl I18nManager {
     }
 
     /// 获取语言信息
+    #[allow(dead_code)]
     pub fn get_language_info(&self, lang: &str) -> Option<&LanguageInfo> {
         self.language_info.get(lang)
     }
@@ -336,6 +338,7 @@ impl I18nManager {
     }
 
     /// 检查语言是否支持
+    #[allow(dead_code)]
     pub fn is_language_supported(&self, lang: &str) -> bool {
         self.supported_languages.contains(&lang.to_string())
     }
@@ -352,6 +355,7 @@ impl I18nManager {
     }
 
     /// 获取有效语言（如果多语言关闭，只返回默认语言）
+    #[allow(dead_code)]
     pub fn get_effective_language(&self, requested_lang: &str) -> String {
         if !self.multilingual_enabled {
             return self.default_language.clone();

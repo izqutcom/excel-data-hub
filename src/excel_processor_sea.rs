@@ -2,7 +2,7 @@ use crate::models::{ExcelData, ImportStats, SearchResponse, StatsResponse};
 use crate::models::entity::{excel_data, files};
 use calamine::{open_workbook_auto, Reader};
 use md5;
-use rust_xlsxwriter::{Workbook, Worksheet, Format};
+use rust_xlsxwriter::{Workbook, Format};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, PaginatorTrait, Set, TransactionTrait};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -58,7 +58,7 @@ impl ExcelProcessor {
             Some(file_model) => {
                 // 更新现有文件的元数据
                 let now = chrono::Utc::now();
-                let mut updated_file = files::ActiveModel {
+                let updated_file = files::ActiveModel {
                     id: Set(file_model.id),
                     file_path: Set(file_model.file_path.clone()),
                     file_name: Set(file_model.file_name.clone()),
@@ -336,7 +336,7 @@ impl ExcelProcessor {
 
     /// 搜索数据
     pub async fn search_data(&self, query_text: &str, limit: u64, offset: u64) -> Result<SearchResponse, sea_orm::DbErr> {
-        use sea_orm::{JoinType, RelationTrait, Condition};
+        use sea_orm::Condition;
         
         // 解析多关键词
         let keywords: Vec<&str> = query_text.trim().split_whitespace().filter(|k| !k.is_empty()).collect();
