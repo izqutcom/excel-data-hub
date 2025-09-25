@@ -1,0 +1,105 @@
+{
+  "app": {
+    "title": "Excel Data Master"
+  },
+  "common": {
+    "search": "Search",
+    "export": "Export",
+    "import": "Import",
+    "delete": "Delete",
+    "edit": "Edit",
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "warning": "Warning",
+    "info": "Information"
+  },
+  "navigation": {
+    "home": "Home",
+    "search": "Search",
+    "stats": "Statistics",
+    "settings": "Settings",
+    "language": "Language"
+  },
+  "search": {
+    "placeholder": "Enter search keywords",
+    "button": "Search",
+    "tips": "💡 Search Tips: Use spaces to separate multiple keywords, e.g., \"John Smith\" matches content containing both words",
+    "results": "Search Results",
+    "no_results": "No matching results found",
+    "total_records": "records",
+    "files": "files",
+    "keyword_required": "Please enter search keywords",
+    "loading": "Searching...",
+    "failed": "Search failed, please try again",
+    "export": "Export Search Results",
+    "empty_state": "No search results"
+  },
+  "stats": {
+    "title": "Data Statistics",
+    "total_files": "Total Files",
+    "total_records": "Total Records",
+    "total_rows": "rows",
+    "file_types": "File Types",
+    "last_updated": "Last Updated",
+    "last_update": "Updated",
+    "loading": "Loading statistics..."
+  },
+  "table": {
+    "row_number": "Row Number",
+    "import_time": "Import Time",
+    "records": "records",
+    "fields": "fields"
+  },
+  "toolbar": {
+    "export": "Export",
+    "refresh": "Refresh"
+  },
+  "pagination": {
+    "page": "Page",
+    "of": "of",
+    "pages": "pages",
+    "records": "Showing",
+    "showing": "Showing",
+    "previous": "Previous",
+    "next": "Next"
+  },
+  "notification": {
+    "copied_cells": "Copied {count} cells"
+  },
+  "export": {
+    "title": "Export Data",
+    "format": "Export Format",
+    "excel": "Excel Format",
+    "csv": "CSV Format",
+    "json": "JSON Format"
+  },
+  "language": {
+    "switch": "Switch Language",
+    "current": "Current Language",
+    "chinese": "中文",
+    "english": "English",
+    "arabic": "العربية",
+    "uyghur": "ئۇيغۇرچە",
+    "switch_success": "Language switched successfully"
+  },
+  "status": {
+    "ready": "Ready"
+  },
+  "errors": {
+    "file_not_found": "File not found",
+    "invalid_format": "Invalid file format",
+    "network_error": "Network connection error",
+    "server_error": "Server error",
+    "permission_denied": "Permission denied"
+  },
+  "messages": {
+    "file_uploaded": "File uploaded successfully",
+    "data_exported": "Data exported successfully",
+    "settings_saved": "Settings saved successfully",
+    "language_switched": "Language switched successfully"
+  }
+}

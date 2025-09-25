@@ -1,0 +1,429 @@
+/**
+ * 多语言系统样式
+ * 支持RTL/LTR布局、语言切换动画、方向性布局
+ */
+
+/* 基础方向性样式 */
+[dir="rtl"] {
+    text-align: right;
+}
+
+[dir="ltr"] {
+    text-align: left;
+}
+
+/* RTL布局调整 */
+.rtl {
+    direction: rtl;
+}
+
+.ltr {
+    direction: ltr;
+}
+
+/* 语言切换器样式 */
+.language-switcher {
+    position: relative;
+    display: inline-block;
+}
+
+.language-switcher-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: linear-gradient(to bottom, #ffffff 0%, #f0f0f0 100%);
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 14px;
+    color: #333;
+}
+
+.language-switcher-button:hover {
+    background: linear-gradient(to bottom, #f0f0f0 0%, #e0e0e0 100%);
+    border-color: #0078d4;
+}
+
+.language-switcher-button:focus {
+    outline: none;
+    border-color: #0078d4;
+    box-shadow: 0 0 0 1px #0078d4;
+}
+
+.language-switcher-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #d0d0d0;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: all 0.2s ease;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.language-switcher-dropdown.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.language-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    border-bottom: 1px solid #f0f0f0;
+    color: #333;
+}
+
+.language-option:last-child {
+    border-bottom: none;
+}
+
+.language-option:hover {
+    background: linear-gradient(to bottom, #f0f0f0 0%, #e0e0e0 100%);
+}
+
+.language-option.active {
+    background: #e8f4fd;
+    color: #0078d4;
+    font-weight: 500;
+}
+
+.language-flag {
+    width: 20px;
+    height: 15px;
+    border-radius: 2px;
+    background: #f0f0f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+}
+
+.language-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.language-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+}
+
+.language-native-name {
+    font-size: 12px;
+    color: #666;
+}
+
+.language-name {
+    flex: 1;
+}
+
+.language-native-name {
+    font-size: 12px;
+    color: #666;
+}
+
+/* RTL特定的语言切换器调整 */
+[dir="rtl"] .language-switcher-dropdown {
+    left: auto;
+    right: 0;
+}
+
+[dir="rtl"] .language-option {
+    text-align: right;
+}
+
+/* 翻译加载状态 */
+.translation-loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.translation-loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #0078d4;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* 语言切换动画 */
+.language-transition {
+    transition: all 0.3s ease;
+}
+
+.language-fade-out {
+    opacity: 0;
+    transform: translateY(-5px);
+}
+
+.language-fade-in {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* RTL布局特定调整 */
+[dir="rtl"] .excel-toolbar {
+    /* 不要翻转整个工具栏，只调整内部间距 */
+}
+
+[dir="rtl"] .excel-toolbar .flex.items-center.justify-between {
+    /* 保持justify-between的行为，不翻转 */
+}
+
+/* RTL搜索区域间距修复 */
+[dir="rtl"] .flex.items-center.space-x-4 > * {
+    margin-left: 0;
+    margin-right: 1rem;
+}
+
+[dir="rtl"] .flex.items-center.space-x-4 > *:first-child {
+    margin-right: 0;
+}
+
+[dir="rtl"] .excel-toolbar .flex.items-center.space-x-2 > * {
+    margin-left: 0.5rem;
+    margin-right: 0;
+}
+
+[dir="rtl"] .excel-search-container {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .excel-search-bar {
+    text-align: right;
+}
+
+[dir="rtl"] .excel-button {
+    margin-left: 0;
+    margin-right: 8px;
+}
+
+[dir="rtl"] .excel-stats {
+    text-align: right;
+}
+
+[dir="rtl"] .excel-grid {
+    direction: rtl;
+}
+
+[dir="rtl"] .excel-cell {
+    text-align: right;
+}
+
+[dir="rtl"] .excel-header {
+    text-align: right;
+}
+
+/* RTL特定的标题和图标间距调整 */
+[dir="rtl"] h1.flex.items-center .mr-2 {
+    margin-right: 0;
+    margin-left: 0.5rem;
+}
+
+/* RTL特定的语言切换器间距调整 */
+[dir="rtl"] .language-switcher-button {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .language-switcher-button > * {
+    margin-left: 8px;
+    margin-right: 0;
+}
+
+[dir="rtl"] .language-switcher-button > *:first-child {
+    margin-left: 0;
+}
+
+[dir="rtl"] .language-option {
+    flex-direction: row-reverse;
+}
+
+[dir="rtl"] .language-option > * {
+    margin-left: 8px;
+    margin-right: 0;
+}
+
+[dir="rtl"] .language-option > *:first-child {
+    margin-left: 0;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+    .language-switcher-dropdown {
+        position: fixed;
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        border-radius: 8px 8px 0 0;
+        max-height: 50vh;
+    }
+    
+    .language-option {
+        padding: 15px 20px;
+        font-size: 16px;
+    }
+    
+    .language-flag {
+        width: 24px;
+        height: 18px;
+    }
+}
+
+/* 高对比度模式支持 */
+@media (prefers-contrast: high) {
+    .language-switcher-button {
+        border-width: 2px;
+    }
+    
+    .language-option:hover {
+        background: #000;
+        color: #fff;
+    }
+    
+    .language-option.active {
+        background: #0078d4;
+        color: #fff;
+    }
+}
+
+/* 减少动画模式支持 */
+@media (prefers-reduced-motion: reduce) {
+    .language-switcher-dropdown,
+    .language-transition,
+    .translation-loading::after {
+        transition: none;
+        animation: none;
+    }
+}
+
+/* 深色模式支持 - 禁用自动深色模式，强制使用浅色主题 */
+@media (prefers-color-scheme: dark) {
+    .language-switcher-button {
+        background: linear-gradient(to bottom, #ffffff 0%, #f0f0f0 100%) !important;
+        border-color: #d0d0d0 !important;
+        color: #333 !important;
+    }
+    
+    .language-switcher-button:hover {
+        background: linear-gradient(to bottom, #f0f0f0 0%, #e0e0e0 100%) !important;
+        border-color: #0078d4 !important;
+    }
+    
+    .language-switcher-dropdown {
+        background: white !important;
+        border-color: #d0d0d0 !important;
+    }
+    
+    .language-option {
+        color: #333 !important;
+        border-color: #f0f0f0 !important;
+    }
+    
+    .language-option:hover {
+        background: linear-gradient(to bottom, #f0f0f0 0%, #e0e0e0 100%) !important;
+    }
+    
+    .language-option.active {
+        background: #e8f4fd !important;
+        color: #0078d4 !important;
+    }
+    
+    .language-native-name {
+        color: #666 !important;
+    }
+}
+
+/* 字体支持 */
+[lang="ar"], [lang="ug"] {
+    font-family: 'Noto Sans Arabic', 'Arial Unicode MS', sans-serif;
+}
+
+[lang="zh"] {
+    font-family: 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif;
+}
+
+[lang="en"] {
+    font-family: 'Segoe UI', 'Roboto', sans-serif;
+}
+
+/* 文本方向指示器 */
+.text-direction-indicator {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: rgba(0, 120, 212, 0.1);
+    color: #0078d4;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    z-index: 1001;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+[dir="rtl"] .text-direction-indicator {
+    right: auto;
+    left: 10px;
+}
+
+.text-direction-indicator.show {
+    opacity: 1;
+}
+
+/* 语言切换成功提示 */
+.language-switch-toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #107c10;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 4px;
+    font-size: 14px;
+    z-index: 1002;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+}
+
+.language-switch-toast.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+.language-switch-toast.hide {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(-50%) translateY(-10px);
+}

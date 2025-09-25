@@ -1,0 +1,106 @@
+{
+  "app": {
+    "title": "Excel数据大师"
+  },
+  "common": {
+    "search": "搜索",
+    "export": "导出",
+    "import": "导入",
+    "delete": "删除",
+    "edit": "编辑",
+    "save": "保存",
+    "cancel": "取消",
+    "confirm": "确认",
+    "loading": "加载中...",
+    "error": "错误",
+    "success": "成功",
+    "warning": "警告",
+    "info": "信息"
+  },
+  "navigation": {
+    "home": "首页",
+    "search": "搜索",
+    "stats": "统计",
+    "settings": "设置",
+    "language": "语言"
+  },
+  "search": {
+    "placeholder": "请输入搜索关键词",
+    "button": "搜索",
+    "tips": "💡 搜索提示：输入多个关键词用空格分隔，如\"阿迪力 阿布拉\"可匹配包含这两个词的内容",
+    "results": "搜索结果",
+    "no_results": "没有找到匹配的结果",
+    "total_records": "条记录",
+    "files": "个文件",
+    "keyword_required": "请输入搜索关键词",
+    "loading": "搜索中...",
+    "failed": "搜索失败，请重试",
+    "export": "导出搜索结果",
+    "empty_state": "暂无搜索结果"
+  },
+  "stats": {
+    "title": "数据统计",
+    "total_files": "文件总数",
+    "total_records": "记录总数",
+    "total_rows": "行",
+    "file_types": "文件类型",
+    "last_updated": "最后更新",
+    "last_update": "更新",
+    "loading": "统计加载中...",
+    "error": "统计加载失败"
+  },
+  "table": {
+    "row_number": "行号",
+    "import_time": "导入时间",
+    "records": "条记录",
+    "fields": "个字段"
+  },
+  "toolbar": {
+    "export": "导出",
+    "refresh": "刷新"
+  },
+  "pagination": {
+    "page": "第",
+    "of": "页，共",
+    "pages": "页",
+    "records": "显示",
+    "showing": "显示",
+    "previous": "上一页",
+    "next": "下一页"
+  },
+  "notification": {
+    "copied_cells": "已复制 {count} 个单元格"
+  },
+  "export": {
+    "title": "导出数据",
+    "format": "导出格式",
+    "excel": "Excel格式",
+    "csv": "CSV格式",
+    "json": "JSON格式"
+  },
+  "language": {
+    "switch": "切换语言",
+    "current": "当前语言",
+    "chinese": "中文",
+    "english": "English",
+    "arabic": "العربية",
+    "uyghur": "ئۇيغۇرچە",
+    "switch_success": "语言切换成功"
+  },
+  "status": {
+    "ready": "就绪"
+  },
+  "errors": {
+    "file_not_found": "文件未找到",
+    "invalid_format": "无效的文件格式",
+    "network_error": "网络连接错误",
+    "server_error": "服务器错误",
+    "permission_denied": "权限不足"
+  },
+  "messages": {
+    "file_uploaded": "文件上传成功",
+    "data_exported": "数据导出成功",
+    "settings_saved": "设置保存成功",
+    "language_switched": "语言切换成功"
+  }
+}
