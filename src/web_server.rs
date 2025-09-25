@@ -132,7 +132,7 @@ async fn home_handler() -> Html<&'static str> {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="app.title">Excel Master Pro - Professional Data Search System</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/static/css/tailwindcss.js"></script>
     <link rel="stylesheet" href="/static/css/i18n.css?v=1.4">
     <script>
         tailwind.config = {
