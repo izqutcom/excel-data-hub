@@ -539,8 +539,8 @@ impl ExcelProcessor {
             });
         }
 
-        // 构建搜索条件：每个关键词都必须在search_text中存在
-        let mut condition = Condition::all();
+        // 构建搜索条件：使用OR条件，任一关键词匹配即可
+        let mut condition = Condition::any();
         for keyword in &keywords {
             condition = condition.add(excel_data::Column::SearchText.contains(*keyword));
         }
@@ -551,18 +551,54 @@ impl ExcelProcessor {
             .count(&self.db)
             .await?;
 
-        // 获取结果，包含文件信息
-        let results: Vec<(excel_data::Model, Option<files::Model>)> = excel_data::Entity::find()
+        // 获取所有匹配的结果，包含文件信息
+        let all_results: Vec<(excel_data::Model, Option<files::Model>)> = excel_data::Entity::find()
             .find_also_related(files::Entity)
             .filter(condition)
-            .order_by_desc(excel_data::Column::ImportTime)
-            .limit(limit)
-            .offset(offset)
             .all(&self.db)
             .await?;
 
+        // 计算每个结果的相关性评分并排序
+        let mut scored_results: Vec<((excel_data::Model, Option<files::Model>), i32)> = all_results
+            .into_iter()
+            .map(|result| {
+                let search_text = &result.0.search_text;
+                let mut score = 0;
+                
+                // 计算匹配的关键词数量
+                for keyword in &keywords {
+                    if search_text.contains(*keyword) {
+                        score += 1;
+                    }
+                }
+                
+                // 如果包含完整的查询字符串，给予额外分数
+                if search_text.contains(query_text) {
+                    score += keywords.len() as i32;
+                }
+                
+                (result, score)
+            })
+            .collect();
+
+        // 按评分降序排序，评分相同时按导入时间降序排序
+        scored_results.sort_by(|a, b| {
+            match b.1.cmp(&a.1) {
+                std::cmp::Ordering::Equal => b.0.0.import_time.cmp(&a.0.0.import_time),
+                other => other,
+            }
+        });
+
+        // 应用分页
+        let paginated_results: Vec<(excel_data::Model, Option<files::Model>)> = scored_results
+            .into_iter()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .map(|(result, _score)| result)
+            .collect();
+
         // 转换为兼容的ExcelData结构
-        let converted_results: Vec<ExcelData> = results
+        let converted_results: Vec<ExcelData> = paginated_results
             .into_iter()
             .map(|(excel_model, file_model)| ExcelData {
                 id: Some(excel_model.id),
@@ -623,28 +659,58 @@ impl ExcelProcessor {
             return Err("搜索关键词不能为空".into());
         }
 
-        // 构建搜索条件
-        let mut condition = Condition::all();
+        // 构建搜索条件：使用OR条件，任一关键词匹配即可
+        let mut condition = Condition::any();
         for keyword in &keywords {
             condition = condition.add(excel_data::Column::SearchText.contains(*keyword));
         }
 
         // 获取所有匹配的数据，包含文件信息
-        let results: Vec<(excel_data::Model, Option<files::Model>)> = excel_data::Entity::find()
+        let all_results: Vec<(excel_data::Model, Option<files::Model>)> = excel_data::Entity::find()
             .find_also_related(files::Entity)
             .filter(condition)
-            .order_by_desc(excel_data::Column::ImportTime)
             .all(&self.db)
             .await?;
 
-        if results.is_empty() {
+        if all_results.is_empty() {
             return Err("没有找到匹配的数据".into());
         }
+
+        // 计算每个结果的相关性评分并排序
+        let mut scored_results: Vec<((excel_data::Model, Option<files::Model>), i32)> = all_results
+            .into_iter()
+            .map(|result| {
+                let search_text = &result.0.search_text;
+                let mut score = 0;
+                
+                // 计算匹配的关键词数量
+                for keyword in &keywords {
+                    if search_text.contains(*keyword) {
+                        score += 1;
+                    }
+                }
+                
+                // 如果包含完整的查询字符串，给予额外分数
+                if search_text.contains(query_text) {
+                    score += keywords.len() as i32;
+                }
+                
+                (result, score)
+            })
+            .collect();
+
+        // 按评分降序排序，评分相同时按导入时间降序排序
+        scored_results.sort_by(|a, b| {
+            match b.1.cmp(&a.1) {
+                std::cmp::Ordering::Equal => b.0.0.import_time.cmp(&a.0.0.import_time),
+                other => other,
+            }
+        });
 
         // 按文件分组数据
         let mut grouped_data: HashMap<String, Vec<(excel_data::Model, files::Model)>> = HashMap::new();
         
-        for (excel_model, file_model_opt) in results {
+        for ((excel_model, file_model_opt), _score) in scored_results {
             if let Some(file_model) = file_model_opt {
                 let file_name = file_model.file_name.clone();
                 grouped_data.entry(file_name).or_insert_with(Vec::new).push((excel_model, file_model));
