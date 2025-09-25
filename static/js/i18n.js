@@ -219,7 +219,7 @@ class I18nManager {
             }
 
             // 批量获取翻译
-            const response = await fetch('/api/i18n/translate', {
+            const response = await fetch('/api/i18n/batch_translate', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

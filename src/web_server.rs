@@ -101,7 +101,7 @@ pub async fn start_server(db: DatabaseConnection, port: u16) -> Result<(), Box<d
         .route("/api/i18n/languages", get(get_languages_handler))
         .route("/api/i18n/status", get(get_i18n_status_handler))
         .route("/api/i18n/translate/{key}", get(translate_handler))
-        .route("/api/i18n/translate", post(batch_translate_handler))
+        .route("/api/i18n/batch_translate", post(batch_translate_handler))
         .route("/api/i18n/reload", post(reload_translations_handler))
         // 静态文件服务
         .nest_service("/static", ServeDir::new("static"))
