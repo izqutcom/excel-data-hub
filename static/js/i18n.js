@@ -288,6 +288,7 @@ class I18nManager {
             'search.files',
             'search.keyword_required',
             'search.no_results',  // 添加搜索无结果的翻译键
+            'notification.copied_cells',  // 添加复制单元格通知的翻译键
             'table.records',
             'table.row_number',
             'table.import_time',
