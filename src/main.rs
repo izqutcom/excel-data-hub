@@ -8,7 +8,7 @@ mod i18n_manager;
 use database_sea::connect_database;
 use excel_processor_sea::ExcelProcessor;
 use std::env;
-use tracing::{info, error};
+use tracing::{info, error, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,8 +25,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "8000".to_string())
         .parse()
         .expect("PORT必须是一个有效的数字");
+    
+    // 检查是否强制重新导入所有文件
+    let force_reimport = env::var("FORCE_REIMPORT")
+        .unwrap_or_else(|_| "false".to_string())
+        .to_lowercase() == "true";
+
+    // 获取并发处理文件数量配置
+    let max_concurrent_files: usize = env::var("MAX_CONCURRENT_FILES")
+        .unwrap_or_else(|_| "4".to_string())
+        .parse()
+        .unwrap_or_else(|_| {
+            warn!("MAX_CONCURRENT_FILES配置无效，使用默认值4");
+            4
+        });
 
     info!("使用Excel文件夹路径: {}", excel_folder);
+    info!("强制重新导入: {}", force_reimport);
+    info!("最大并发文件数: {}", max_concurrent_files);
 
     // 连接数据库
     let db = connect_database().await?;
@@ -35,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let processor = ExcelProcessor::new(db.clone());
 
     // 处理Excel文件夹中的所有文件
-    if let Err(e) = processor.batch_import_excel_files(&excel_folder).await {
+    if let Err(e) = processor.batch_import_excel_files_with_options(&excel_folder, force_reimport, max_concurrent_files).await {
         error!("Excel文件处理失败: {}", e);
         // 不要因为Excel处理失败而退出程序，继续启动Web服务器
     } else {

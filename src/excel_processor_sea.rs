@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use tracing::{info, error};
+use tokio::task::JoinSet;
 
 pub struct ExcelProcessor {
     db: sea_orm::DatabaseConnection,
@@ -84,6 +85,29 @@ impl ExcelProcessor {
                 };
                 let inserted = new_file.insert(&self.db).await?;
                 Ok(inserted.id)
+            }
+        }
+    }
+
+    /// 检查文件是否需要更新（基于哈希值比较）
+    async fn is_file_changed(&self, file_path: &str) -> Result<bool, Box<dyn std::error::Error>> {
+        // 计算当前文件的哈希值
+        let current_hash = self.generate_file_hash(file_path).await?;
+        
+        // 查询数据库中的文件记录
+        let existing_file: Option<files::Model> = files::Entity::find()
+            .filter(files::Column::FilePath.eq(file_path))
+            .one(&self.db)
+            .await?;
+
+        match existing_file {
+            Some(file_model) => {
+                // 比较哈希值
+                Ok(file_model.file_hash != current_hash)
+            }
+            None => {
+                // 文件不存在于数据库中，需要导入
+                Ok(true)
             }
         }
     }
@@ -246,8 +270,13 @@ impl ExcelProcessor {
         }
     }
 
-    /// 批量导入Excel文件
+    /// 批量导入Excel文件（支持增量更新和多线程）
     pub async fn batch_import_excel_files(&self, folder_path: &str) -> Result<ImportStats, Box<dyn std::error::Error>> {
+        self.batch_import_excel_files_with_options(folder_path, false, 4).await
+    }
+
+    /// 批量导入Excel文件（带选项和多线程支持）
+    pub async fn batch_import_excel_files_with_options(&self, folder_path: &str, force_reimport: bool, max_concurrent_files: usize) -> Result<ImportStats, Box<dyn std::error::Error>> {
         let mut stats = ImportStats {
             success: 0,
             failed: 0,
@@ -272,6 +301,7 @@ impl ExcelProcessor {
         let mut processed_files_count = 0;
         let mut excel_files_count = 0;
 
+        // 扫描Excel文件
         for entry in entries {
             if let Ok(entry) = entry {
                 let path = entry.path();
@@ -287,10 +317,30 @@ impl ExcelProcessor {
                         info!("文件: {}, 扩展名: {}", file_name, ext_str);
                         
                         if excel_extensions.contains(&ext_str.as_str()) {
-                            files_to_process.push(path.to_string_lossy().to_string());
-                            stats.total += 1;
-                            excel_files_count += 1;
-                            info!("找到Excel文件: {}", file_name);
+                            let file_path = path.to_string_lossy().to_string();
+                            
+                            // 检查文件是否需要更新（除非强制重新导入）
+                            let needs_update = if force_reimport {
+                                true
+                            } else {
+                                match self.is_file_changed(&file_path).await {
+                                    Ok(changed) => changed,
+                                    Err(e) => {
+                                        error!("检查文件变化失败 {}: {}", file_path, e);
+                                        true // 出错时默认需要更新
+                                    }
+                                }
+                            };
+
+                            if needs_update {
+                                files_to_process.push(file_path);
+                                stats.total += 1;
+                                excel_files_count += 1;
+                                info!("找到需要处理的Excel文件: {}", file_name);
+                            } else {
+                                stats.skipped += 1;
+                                info!("跳过未变化的Excel文件: {}", file_name);
+                            }
                         } else {
                             info!("跳过非Excel文件: {}, 扩展名: {}", file_name, ext_str);
                         }
@@ -303,62 +353,113 @@ impl ExcelProcessor {
             }
         }
         
-        info!("扫描完成 - 总文件数: {}, 处理文件数: {}, Excel文件数: {}", all_files_count, processed_files_count, excel_files_count);
+        info!("扫描完成 - 总文件数: {}, 处理文件数: {}, Excel文件数: {}, 需要更新: {}, 跳过: {}", 
+              all_files_count, processed_files_count, excel_files_count, files_to_process.len(), stats.skipped);
 
-        // 处理每个Excel文件
-        for file_path in files_to_process {
-            info!("开始处理文件: {}", file_path);
+        if files_to_process.is_empty() {
+            info!("没有需要处理的文件");
+            return Ok(stats);
+        }
+
+        // 使用多线程并行处理文件，并发数量可配置
+        let chunk_size = std::cmp::max(1, max_concurrent_files); // 确保至少为1
+        info!("使用并发处理，每批最多处理 {} 个文件", chunk_size);
+        
+        for chunk in files_to_process.chunks(chunk_size) {
+            let mut tasks: JoinSet<Result<(), Box<dyn std::error::Error + Send + Sync>>> = JoinSet::new();
             
-            // 获取或创建文件元数据
-            let file_id = match self.get_or_create_file_metadata(&file_path).await {
-                Ok(id) => {
-                    info!("文件元数据处理成功，文件ID: {}", id);
-                    id
-                },
-                Err(e) => {
-                    error!("处理文件元数据失败 {}: {}", file_path, e);
-                    stats.failed += 1;
-                    continue;
-                }
-            };
-
-            // 删除现有数据
-            if let Err(e) = self.delete_file_data(file_id).await {
-                error!("删除现有数据失败 {}: {}", file_path, e);
-                stats.failed += 1;
-                continue;
+            for file_path in chunk {
+                let file_path = file_path.clone();
+                let db = self.db.clone();
+                
+                tasks.spawn(async move {
+                    let processor = ExcelProcessor::new(db);
+                    processor.process_single_file(&file_path, force_reimport).await
+                });
             }
             
-            info!("已删除文件 {} 的现有数据", file_path);
-
-            // 读取Excel文件
-            let rows_data = match self.read_excel_file(&file_path).await {
-                Ok(data) => {
-                    info!("文件读取成功 {}: 共 {} 行数据", file_path, data.len());
-                    data
-                },
-                Err(e) => {
-                    error!("文件读取失败 {}: {}", file_path, e);
-                    stats.failed += 1;
-                    continue;
-                }
-            };
-
-            // 插入数据
-            match self.insert_excel_data(file_id, rows_data).await {
-                Ok(_) => {
-                    info!("文件数据导入成功: {}", file_path);
-                    stats.success += 1;
-                },
-                Err(e) => {
-                    error!("文件数据导入失败 {}: {}", file_path, e);
-                    stats.failed += 1;
+            // 等待当前批次的所有任务完成
+            while let Some(result) = tasks.join_next().await {
+                match result {
+                    Ok(Ok(())) => {
+                        stats.success += 1;
+                    },
+                    Ok(Err(e)) => {
+                        error!("文件处理失败: {}", e);
+                        stats.failed += 1;
+                    },
+                    Err(e) => {
+                        error!("任务执行失败: {}", e);
+                        stats.failed += 1;
+                    }
                 }
             }
         }
 
         info!("批量导入完成 - 成功: {}, 失败: {}, 总计: {}, 跳过: {}", stats.success, stats.failed, stats.total, stats.skipped);
         Ok(stats)
+    }
+
+    /// 处理单个文件（用于多线程调用）
+    async fn process_single_file(&self, file_path: &str, force_reimport: bool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        info!("开始处理文件: {}", file_path);
+        
+        // 如果不是强制重新导入，检查文件是否需要更新
+        if !force_reimport {
+            match self.is_file_changed(file_path).await {
+                Ok(false) => {
+                    info!("文件未发生变化，跳过处理: {}", file_path);
+                    return Ok(());
+                },
+                Ok(true) => {
+                    info!("文件已发生变化，需要重新处理: {}", file_path);
+                },
+                Err(e) => {
+                    error!("检查文件变化失败 {}: {}", file_path, e);
+                    // 出错时默认需要更新
+                }
+            }
+        }
+        
+        // 获取或创建文件元数据
+        let file_id = match self.get_or_create_file_metadata(file_path).await {
+            Ok(id) => {
+                info!("文件元数据处理成功，文件ID: {}", id);
+                id
+            },
+            Err(e) => {
+                return Err(format!("处理文件元数据失败 {}: {}", file_path, e).into());
+            }
+        };
+
+        // 删除现有数据
+        if let Err(e) = self.delete_file_data(file_id).await {
+            return Err(format!("删除现有数据失败 {}: {}", file_path, e).into());
+        }
+        
+        info!("已删除文件 {} 的现有数据", file_path);
+
+        // 读取Excel文件
+        let rows_data = match self.read_excel_file(file_path).await {
+            Ok(data) => {
+                info!("文件读取成功 {}: 共 {} 行数据", file_path, data.len());
+                data
+            },
+            Err(e) => {
+                return Err(format!("文件读取失败 {}: {}", file_path, e).into());
+            }
+        };
+
+        // 插入数据
+        match self.insert_excel_data(file_id, rows_data).await {
+            Ok(_) => {
+                info!("文件数据导入成功: {}", file_path);
+                Ok(())
+            },
+            Err(e) => {
+                Err(format!("文件数据导入失败 {}: {}", file_path, e).into())
+            }
+        }
     }
 
     /// 搜索数据
