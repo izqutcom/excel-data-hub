@@ -145,9 +145,24 @@ impl ExcelProcessor {
                     let value = if cell_str.is_empty() {
                         Value::Null
                     } else {
-                        // 尝试解析为数字
-                        if let Ok(num) = cell_str.parse::<f64>() {
-                            Value::Number(serde_json::Number::from_f64(num).unwrap_or_else(|| serde_json::Number::from(0)))
+                        // 检查是否为纯数字字符串
+                        if cell_str.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == '+') {
+                            // 如果数字长度超过15位，或者包含前导零，保持为字符串
+                            // 这样可以避免身份证号码、电话号码等被错误转换
+                            if cell_str.len() > 15 || (cell_str.len() > 1 && cell_str.starts_with('0') && !cell_str.contains('.')) {
+                                Value::String(cell_str)
+                            } else if let Ok(num) = cell_str.parse::<f64>() {
+                                // 检查转换后的数字是否与原字符串一致（避免精度丢失）
+                                let num_str = num.to_string();
+                                if num_str == cell_str || (num.fract() == 0.0 && num.to_string().replace(".0", "") == cell_str) {
+                                    Value::Number(serde_json::Number::from_f64(num).unwrap_or_else(|| serde_json::Number::from(0)))
+                                } else {
+                                    // 如果转换后不一致，说明有精度丢失，保持为字符串
+                                    Value::String(cell_str)
+                                }
+                            } else {
+                                Value::String(cell_str)
+                            }
                         } else {
                             Value::String(cell_str)
                         }
@@ -180,7 +195,19 @@ impl ExcelProcessor {
                 .map(|v| {
                     match v {
                         Value::String(s) => s.clone(),
-                        Value::Number(n) => n.to_string(),
+                        Value::Number(n) => {
+                            // 对于数字，检查是否为整数且位数较多
+                            if let Some(f) = n.as_f64() {
+                                if f.fract() == 0.0 && f.abs() >= 1e15 {
+                                    // 对于大整数，使用整数格式避免科学计数法
+                                    format!("{:.0}", f)
+                                } else {
+                                    n.to_string()
+                                }
+                            } else {
+                                n.to_string()
+                            }
+                        },
                         Value::Bool(b) => b.to_string(),
                         _ => String::new(),
                     }
