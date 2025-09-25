@@ -11,6 +11,10 @@ class I18nManager {
         this.initialized = false;
         this.multilingualEnabled = true; // 多语言功能开关状态
         
+        // 批量加载缺失翻译键的相关属性
+        this.missingKeys = new Set();
+        this.batchTimer = null;
+        
         // 绑定方法上下文
         this.translate = this.translate.bind(this);
         this.setLanguage = this.setLanguage.bind(this);
@@ -283,6 +287,7 @@ class I18nManager {
             'search.total_records',
             'search.files',
             'search.keyword_required',
+            'search.no_results',  // 添加搜索无结果的翻译键
             'table.records',
             'table.row_number',
             'table.import_time',
@@ -303,7 +308,13 @@ class I18nManager {
      */
     translate(key, params = {}) {
         const langTranslations = this.translations[this.currentLanguage] || {};
-        let translation = langTranslations[key] || key;
+        let translation = langTranslations[key];
+        
+        // 如果翻译不存在，队列缺失的键并返回键名作为后备
+        if (!translation) {
+            this.queueMissingKey(key);
+            translation = key;
+        }
         
         // 替换参数占位符
         Object.keys(params).forEach(paramKey => {
@@ -311,6 +322,64 @@ class I18nManager {
         });
         
         return translation;
+    }
+
+    /**
+     * 队列缺失的翻译键
+     */
+    queueMissingKey(key) {
+        if (!this.missingKeys.has(key)) {
+            this.missingKeys.add(key);
+            
+            // 清除之前的定时器
+            if (this.batchTimer) {
+                clearTimeout(this.batchTimer);
+            }
+            
+            // 设置新的定时器，延迟批量加载
+            this.batchTimer = setTimeout(() => {
+                this.loadMissingKeys();
+            }, 100); // 100ms 延迟
+        }
+    }
+
+    /**
+     * 批量加载缺失的翻译键
+     */
+    async loadMissingKeys() {
+        if (this.missingKeys.size === 0) return;
+        
+        const keysToLoad = Array.from(this.missingKeys);
+        this.missingKeys.clear();
+        
+        try {
+            const response = await fetch('/api/i18n/batch_translate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept-Language': this.currentLanguage
+                },
+                body: JSON.stringify({
+                    keys: keysToLoad
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                
+                // 更新翻译缓存
+                if (!this.translations[this.currentLanguage]) {
+                    this.translations[this.currentLanguage] = {};
+                }
+                
+                Object.assign(this.translations[this.currentLanguage], data.translations);
+                
+                // 重新翻译页面中使用这些键的元素
+                this.updateAllTranslations();
+            }
+        } catch (error) {
+            console.error('批量加载翻译失败:', error);
+        }
     }
 
     /**
