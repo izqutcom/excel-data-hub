@@ -3,8 +3,19 @@
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org)
 [![PostgreSQL](https://img.shields.io/badge/postgresql-12+-blue.svg)](https://www.postgresql.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![GitHub](https://img.shields.io/badge/GitHub-izqutcom/excel--data--hub-blue?logo=github)](https://github.com/izqutcom/excel-data-hub)
+[![Gitee](https://img.shields.io/badge/Gitee-izqutcom/excel--data--hub-red?logo=gitee)](https://gitee.com/izqutcom/excel-data-hub)
 
 一个基于 Rust 开发的高性能 Excel 数据处理和搜索系统，支持多语言界面，提供强大的全文搜索功能和现代化的 Web 界面。
+
+## 🌍 仓库镜像
+
+本项目同时托管在以下平台：
+
+- **GitHub**: https://github.com/izqutcom/excel-data-hub （国际用户推荐）
+- **Gitee**: https://gitee.com/izqutcom/excel-data-hub （国内用户推荐）
+
+两个仓库保持同步更新，您可以选择访问速度更快的平台。
 
 ## ✨ 功能特性
 
@@ -44,8 +55,16 @@
 ### 安装步骤
 
 1. **克隆项目**
+
+从 GitHub 克隆：
 ```bash
-git clone https://github.com/your-username/excel-data-hub.git
+git clone https://github.com/izqutcom/excel-data-hub.git
+cd excel-data-hub
+```
+
+或从 Gitee 克隆（国内用户推荐）：
+```bash
+git clone https://gitee.com/izqutcom/excel-data-hub.git
 cd excel-data-hub
 ```
 
@@ -246,19 +265,28 @@ locales/                 # 多语言文件
 
 ### 如何贡献
 
-1. Fork 本项目
+1. Fork 本项目（GitHub 或 Gitee 均可）
 2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
 3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 创建 Pull Request
+5. 创建 Pull Request（GitHub）或 Merge Request（Gitee）
 
 ### 开发环境设置
 
+从 GitHub 克隆：
 ```bash
-# 克隆项目
-git clone https://github.com/your-username/excel-data-hub.git
+git clone https://github.com/izqutcom/excel-data-hub.git
 cd excel-data-hub
+```
 
+或从 Gitee 克隆：
+```bash
+git clone https://gitee.com/izqutcom/excel-data-hub.git
+cd excel-data-hub
+```
+
+然后继续：
+```bash
 # 安装依赖
 cargo build
 
@@ -299,9 +327,11 @@ cargo run
 
 ## 📞 联系方式
 
-- 项目主页: https://github.com/your-username/excel-data-hub
-- 问题反馈: https://github.com/your-username/excel-data-hub/issues
-- 邮箱: your-email@example.com
+- GitHub: https://github.com/izqutcom/excel-data-hub
+- Gitee: https://gitee.com/izqutcom/excel-data-hub
+- 问题反馈: 
+  - GitHub Issues: https://github.com/izqutcom/excel-data-hub/issues
+  - Gitee Issues: https://gitee.com/izqutcom/excel-data-hub/issues
 
 ---
 
