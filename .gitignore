@@ -1,4 +1,11 @@
 /target
 /excel_files
 /.idea
+
+# IDE
+.vscode/
+.idea/
+
+# 宣传文档（不提交到git）
+项目宣传文档.md
 /.env
