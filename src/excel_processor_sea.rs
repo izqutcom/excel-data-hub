@@ -20,6 +20,63 @@ impl ExcelProcessor {
         Self { db }
     }
 
+    /// 检测行数据中可疑的Unicode转义序列
+    fn find_suspicious_escapes(row: &HashMap<String, Value>) -> Vec<(String, String)> {
+        let mut suspicious_fields = Vec::new();
+        for (key, value) in row {
+            if let Value::String(s) = value {
+                if s.contains("\\u") || s.contains("\u{005C}u") || s.contains('\u{0000}') {
+                    suspicious_fields.push((key.clone(), s.clone()));
+                }
+            }
+        }
+        suspicious_fields
+    }
+
+    /// 清理行数据中的问题字符（包括字段名和字段值）
+    fn clean_row_data(row: &mut HashMap<String, Value>) {
+        // 首先清理字段名，需要重新构建HashMap
+        let mut cleaned_row = HashMap::new();
+        
+        for (key, value) in row.drain() {
+            // 清理字段名
+            let cleaned_key = key
+                .replace('\u{0000}', "") // 移除空字符
+                .replace('\u{FEFF}', "") // 移除BOM字符
+                .replace('\u{200B}', "") // 移除零宽空格
+                .chars()
+                .filter(|c| c.is_ascii_graphic() || c.is_ascii_whitespace() || c.is_ascii_alphanumeric())
+                .collect::<String>()
+                .trim()
+                .to_string();
+            
+            // 清理字段值
+            let cleaned_value = match value {
+                Value::String(s) => {
+                    let cleaned_str = s
+                        .replace('\u{0000}', "") // 移除空字符
+                        .replace('\u{FEFF}', "") // 移除BOM字符
+                        .replace('\u{200B}', "") // 移除零宽空格
+                        .chars()
+                        .filter(|c| c.is_ascii_graphic() || c.is_ascii_whitespace() || c.is_ascii_alphanumeric())
+                        .collect::<String>()
+                        .trim()
+                        .to_string();
+                    Value::String(cleaned_str)
+                }
+                other => other,
+            };
+            
+            // 只保留有效的字段名
+            if !cleaned_key.is_empty() {
+                cleaned_row.insert(cleaned_key, cleaned_value);
+            }
+        }
+        
+        // 将清理后的数据放回原HashMap
+        *row = cleaned_row;
+    }
+
     /// 生成文件哈希值
     async fn generate_file_hash(&self, file_path: &str) -> Result<String, Box<dyn std::error::Error>> {
         let content = fs::read(file_path)?;
@@ -230,7 +287,7 @@ impl ExcelProcessor {
     }
 
     /// 插入Excel数据到数据库
-    async fn insert_excel_data(&self, file_id: i32, sheet_name: &str, rows_data: Vec<HashMap<String, Value>>) -> Result<bool, sea_orm::DbErr> {
+    async fn insert_excel_data(&self, file_id: i32, file_path: &str, sheet_name: &str, rows_data: Vec<HashMap<String, Value>>) -> Result<bool, sea_orm::DbErr> {
         if rows_data.is_empty() {
             return Ok(true);
         }
@@ -238,7 +295,10 @@ impl ExcelProcessor {
         let now = chrono::Utc::now();
         let mut records = Vec::new();
 
-        for (index, row_data) in rows_data.iter().enumerate() {
+        for (index, mut row_data) in rows_data.into_iter().enumerate() {
+            // 清理数据中的问题字符
+            Self::clean_row_data(&mut row_data);
+            
             // 构建搜索文本
             let search_parts: Vec<String> = row_data
                 .values()
@@ -275,21 +335,35 @@ impl ExcelProcessor {
                 sheet_name: Set(sheet_name.to_string()),
             };
 
-            records.push(record);
+            records.push(((index + 1), row_data.clone(), record));
         }
 
-        // 批量插入数据
+        // 使用事务逐条插入，并在失败时打印详细上下文
         if !records.is_empty() {
-            // 使用事务确保数据一致性
             let txn = self.db.begin().await?;
+            let total_records = records.len();
 
-            for record in records {
-                record.insert(&txn).await?;
+            for (row_no, row_data, record) in records {
+                if let Err(e) = record.insert(&txn).await {
+                    let suspicious_fields = Self::find_suspicious_escapes(&row_data);
+                    let raw_json = serde_json::to_string(&row_data).unwrap_or_default();
+                    error!(
+                        "数据行导入失败: 文件={} 工作表={} 行号={} 错误={} 可疑字段={:?} 原始JSON={}",
+                        file_path,
+                        sheet_name,
+                        row_no,
+                        e,
+                        suspicious_fields,
+                        raw_json
+                    );
+                    // 出现错误直接返回，让上层日志保持"工作表 X 数据导入失败"
+                    return Err(e);
+                }
             }
 
             txn.commit().await?;
 
-            info!("成功导入文件ID {}，工作表 {}，共 {} 条记录", file_id, sheet_name, rows_data.len());
+            info!("成功导入文件ID {}，工作表 {}，共 {} 条记录", file_id, sheet_name, total_records);
             Ok(true)
         } else {
             info!("文件ID {} 没有数据", file_id);
@@ -485,7 +559,7 @@ impl ExcelProcessor {
 
         // 插入每个工作表的数据
         for (sheet_name, rows_data) in all_sheets_data {
-            match self.insert_excel_data(file_id, &sheet_name, rows_data).await {
+            match self.insert_excel_data(file_id, file_path, &sheet_name, rows_data).await {
                 Ok(_) => {
                     info!("工作表 {} 数据导入成功", sheet_name);
                 },
