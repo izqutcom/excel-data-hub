@@ -39,13 +39,15 @@ impl ExcelProcessor {
         let mut cleaned_row = HashMap::new();
         
         for (key, value) in row.drain() {
-            // 清理字段名
+            // 清理字段名 - 只移除真正有问题的控制字符，保留Unicode字符
             let cleaned_key = key
                 .replace('\u{0000}', "") // 移除空字符
                 .replace('\u{FEFF}', "") // 移除BOM字符
                 .replace('\u{200B}', "") // 移除零宽空格
+                .replace('\u{200C}', "") // 移除零宽非连接符
+                .replace('\u{200D}', "") // 移除零宽连接符
                 .chars()
-                .filter(|c| c.is_ascii_graphic() || c.is_ascii_whitespace() || c.is_ascii_alphanumeric())
+                .filter(|c| !c.is_control() || c.is_whitespace()) // 只过滤控制字符，保留空白字符和所有可见字符
                 .collect::<String>()
                 .trim()
                 .to_string();
@@ -57,8 +59,10 @@ impl ExcelProcessor {
                         .replace('\u{0000}', "") // 移除空字符
                         .replace('\u{FEFF}', "") // 移除BOM字符
                         .replace('\u{200B}', "") // 移除零宽空格
+                        .replace('\u{200C}', "") // 移除零宽非连接符
+                        .replace('\u{200D}', "") // 移除零宽连接符
                         .chars()
-                        .filter(|c| c.is_ascii_graphic() || c.is_ascii_whitespace() || c.is_ascii_alphanumeric())
+                        .filter(|c| !c.is_control() || c.is_whitespace()) // 只过滤控制字符，保留空白字符和所有可见字符
                         .collect::<String>()
                         .trim()
                         .to_string();
@@ -82,6 +86,39 @@ impl ExcelProcessor {
         let content = fs::read(file_path)?;
         let digest = md5::compute(content);
         Ok(format!("{:x}", digest))
+    }
+
+    /// 递归扫描目录中的Excel文件
+    fn scan_excel_files_recursive(&self, dir: &Path, excel_extensions: &[&str]) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let mut excel_files = Vec::new();
+        
+        fn scan_directory(dir: &Path, excel_extensions: &[&str], excel_files: &mut Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+            let entries = fs::read_dir(dir)?;
+            
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    
+                    if path.is_file() {
+                        // 检查是否是Excel文件
+                        if let Some(extension) = path.extension() {
+                            let ext_str = extension.to_string_lossy().to_lowercase();
+                            if excel_extensions.contains(&ext_str.as_str()) {
+                                let file_path = path.to_string_lossy().to_string();
+                                excel_files.push(file_path);
+                            }
+                        }
+                    } else if path.is_dir() {
+                        // 递归扫描子目录
+                        scan_directory(&path, excel_extensions, excel_files)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+        
+        scan_directory(dir, excel_extensions, &mut excel_files)?;
+        Ok(excel_files)
     }
 
     /// 获取或创建文件元数据
@@ -394,7 +431,6 @@ impl ExcelProcessor {
             return Err(format!("路径不是文件夹: {}", folder_path).into());
         }
 
-        let entries = fs::read_dir(path)?;
         let mut files_to_process = Vec::new();
         let excel_extensions = ["xlsx", "xls"];
         
@@ -402,55 +438,41 @@ impl ExcelProcessor {
         let mut processed_files_count = 0;
         let mut excel_files_count = 0;
 
-        // 扫描Excel文件
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                all_files_count += 1;
-                
-                if path.is_file() {
-                    processed_files_count += 1;
-                    
-                    let file_name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or("未知文件名".to_string());
-                    
-                    if let Some(extension) = path.extension() {
-                        let ext_str = extension.to_string_lossy().to_lowercase();
-                        info!("文件: {}, 扩展名: {}", file_name, ext_str);
-                        
-                        if excel_extensions.contains(&ext_str.as_str()) {
-                            let file_path = path.to_string_lossy().to_string();
-                            
-                            // 检查文件是否需要更新（除非强制重新导入）
-                            let needs_update = if force_reimport {
-                                true
-                            } else {
-                                match self.is_file_changed(&file_path).await {
-                                    Ok(changed) => changed,
-                                    Err(e) => {
-                                        error!("检查文件变化失败 {}: {}", file_path, e);
-                                        true // 出错时默认需要更新
-                                    }
-                                }
-                            };
-
-                            if needs_update {
-                                files_to_process.push(file_path);
-                                stats.total += 1;
-                                excel_files_count += 1;
-                                info!("找到需要处理的Excel文件: {}", file_name);
-                            } else {
-                                stats.skipped += 1;
-                                info!("跳过未变化的Excel文件: {}", file_name);
-                            }
-                        } else {
-                            info!("跳过非Excel文件: {}, 扩展名: {}", file_name, ext_str);
-                        }
-                    } else {
-                        info!("跳过无扩展名文件: {}", file_name);
+        // 递归扫描Excel文件
+        let excel_files = self.scan_excel_files_recursive(path, &excel_extensions)?;
+        
+        for file_path in excel_files {
+            all_files_count += 1;
+            processed_files_count += 1;
+            
+            let file_name = Path::new(&file_path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or("未知文件名".to_string());
+            
+            info!("找到Excel文件: {}", file_name);
+            
+            // 检查文件是否需要更新（除非强制重新导入）
+            let needs_update = if force_reimport {
+                true
+            } else {
+                match self.is_file_changed(&file_path).await {
+                    Ok(changed) => changed,
+                    Err(e) => {
+                        error!("检查文件变化失败 {}: {}", file_path, e);
+                        true // 出错时默认需要更新
                     }
-                } else {
-                    info!("跳过目录: {}", path.display());
                 }
+            };
+
+            if needs_update {
+                files_to_process.push(file_path);
+                stats.total += 1;
+                excel_files_count += 1;
+                info!("需要处理的Excel文件: {}", file_name);
+            } else {
+                stats.skipped += 1;
+                info!("跳过未变化的Excel文件: {}", file_name);
             }
         }
         
