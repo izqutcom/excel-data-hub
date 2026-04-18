@@ -100,6 +100,7 @@
     "private": "私有",
     "empty_desc": "无描述",
     "enter": "进入",
+    "edit": "编辑",
     "upload": "上传",
     "delete": "删除",
     "no_workspace": "你还没有工作区，点击右上角“新建工作区”创建。",

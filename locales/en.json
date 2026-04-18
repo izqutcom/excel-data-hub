@@ -99,6 +99,7 @@
     "private": "Private",
     "empty_desc": "No description",
     "enter": "Enter",
+    "edit": "Edit",
     "upload": "Upload",
     "delete": "Delete",
     "no_workspace": "You don't have any workspaces yet. Click \"New Workspace\" to create one.",
