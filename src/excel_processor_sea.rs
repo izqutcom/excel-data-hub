@@ -1,6 +1,6 @@
 use crate::models::{ExcelData, SearchResponse, StatsResponse};
 use crate::models::entity::{excel_data, files, workspaces};
-use calamine::{open_workbook_auto, Reader};
+use calamine::{open_workbook_auto, Data, Reader};
 use md5;
 use rust_xlsxwriter::{Workbook, Format};
 use sea_orm::{ActiveModelTrait, ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect, PaginatorTrait, Set, TransactionTrait};
@@ -17,6 +17,31 @@ pub struct ExcelProcessor {
 impl ExcelProcessor {
     pub fn new(db: sea_orm::DatabaseConnection) -> Self {
         Self { db }
+    }
+
+    fn cell_to_text(cell: &Data) -> String {
+        match cell {
+            Data::Empty => String::new(),
+            Data::String(s) => s.clone(),
+            Data::Float(f) => {
+                if f.fract() == 0.0 {
+                    format!("{:.0}", f)
+                } else {
+                    let s = f.to_string();
+                    if s.contains('.') {
+                        s.trim_end_matches('0').trim_end_matches('.').to_string()
+                    } else {
+                        s
+                    }
+                }
+            }
+            Data::Int(i) => i.to_string(),
+            Data::Bool(b) => b.to_string(),
+            Data::DateTime(dt) => dt.to_string(),
+            Data::DateTimeIso(s) => s.clone(),
+            Data::DurationIso(s) => s.clone(),
+            Data::Error(e) => format!("{:?}", e),
+        }
     }
 
     /// 检测行数据中可疑的Unicode转义序列
@@ -257,7 +282,7 @@ impl ExcelProcessor {
                 .unwrap()
                 .iter()
                 .map(|cell| {
-                    match cell.to_string() {
+                    match Self::cell_to_text(cell) {
                         s if s.is_empty() => "EMPTY".to_string(),
                         s => s,
                     }
@@ -270,31 +295,12 @@ impl ExcelProcessor {
 
                 for (col_idx, cell) in row.iter().enumerate() {
                     if col_idx < headers.len() {
-                        let cell_str = cell.to_string();
-                        let value = if cell_str.is_empty() {
+                        let cell_str = Self::cell_to_text(cell);
+                        let value = if cell_str.trim().is_empty() {
                             Value::Null
                         } else {
-                            // 检查是否为纯数字字符串
-                            if cell_str.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == '+') {
-                                // 如果数字长度超过15位，或者包含前导零，保持为字符串
-                                // 这样可以避免身份证号码、电话号码等被错误转换
-                                if cell_str.len() > 15 || (cell_str.len() > 1 && cell_str.starts_with('0') && !cell_str.contains('.')) {
-                                    Value::String(cell_str)
-                                } else if let Ok(num) = cell_str.parse::<f64>() {
-                                    // 检查转换后的数字是否与原字符串一致（避免精度丢失）
-                                    let num_str = num.to_string();
-                                    if num_str == cell_str || (num.fract() == 0.0 && num.to_string().replace(".0", "") == cell_str) {
-                                        Value::Number(serde_json::Number::from_f64(num).unwrap_or_else(|| serde_json::Number::from(0)))
-                                    } else {
-                                        // 如果转换后不一致，说明有精度丢失，保持为字符串
-                                        Value::String(cell_str)
-                                    }
-                                } else {
-                                    Value::String(cell_str)
-                                }
-                            } else {
-                                Value::String(cell_str)
-                            }
+                            // 所有字段统一按文本存储，避免数字/时间被自动类型改写
+                            Value::String(cell_str)
                         };
                         row_data.insert(headers[col_idx].clone(), value);
                     }
@@ -349,19 +355,6 @@ impl ExcelProcessor {
                 .map(|v| {
                     match v {
                         Value::String(s) => s.clone(),
-                        Value::Number(n) => {
-                            // 对于数字，检查是否为整数且位数较多
-                            if let Some(f) = n.as_f64() {
-                                if f.fract() == 0.0 && f.abs() >= 1e15 {
-                                    // 对于大整数，使用整数格式避免科学计数法
-                                    format!("{:.0}", f)
-                                } else {
-                                    n.to_string()
-                                }
-                            } else {
-                                n.to_string()
-                            }
-                        },
                         Value::Bool(b) => b.to_string(),
                         _ => String::new(),
                     }
@@ -820,7 +813,17 @@ impl ExcelProcessor {
                             if let Ok(data_obj) = serde_json::from_value::<HashMap<String, Value>>(excel_model.data_json.clone()) {
                                 match data_obj.get(column_name) {
                                     Some(Value::String(s)) => s.clone(),
-                                    Some(Value::Number(n)) => n.to_string(),
+                                    Some(Value::Number(n)) => {
+                                        if let Some(f) = n.as_f64() {
+                                            if f.fract() == 0.0 {
+                                                format!("{:.0}", f)
+                                            } else {
+                                                n.to_string()
+                                            }
+                                        } else {
+                                            n.to_string()
+                                        }
+                                    }
                                     Some(Value::Bool(b)) => b.to_string(),
                                     Some(Value::Null) => String::new(),
                                     Some(v) => v.to_string(),
