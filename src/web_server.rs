@@ -1757,6 +1757,25 @@ async fn home_handler() -> Html<&'static str> {
             selectionStart = null;
         }
 
+        function fallbackCopyText(copyText) {
+            try {
+                const textArea = document.createElement('textarea');
+                textArea.value = copyText;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-9999px';
+                textArea.style.top = '0';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                const copied = document.execCommand('copy');
+                document.body.removeChild(textArea);
+                return copied;
+            } catch (err) {
+                console.error('降级复制失败:', err);
+                return false;
+            }
+        }
+
         // 复制选中的内容
         function copySelectedCells() {
             if (selectedCells.size === 0) return;
@@ -1792,20 +1811,33 @@ async fn home_handler() -> Html<&'static str> {
                 copyText += cellData.content;
             });
             
-            // 复制到剪贴板
-            navigator.clipboard.writeText(copyText).then(() => {
+            // 复制到剪贴板：优先 Async Clipboard，失败后自动降级
+            const hasAsyncClipboard = Boolean(
+                navigator.clipboard &&
+                typeof navigator.clipboard.writeText === 'function'
+            );
+
+            if (hasAsyncClipboard) {
+                navigator.clipboard.writeText(copyText).then(() => {
+                    showCopyNotification();
+                }).catch(err => {
+                    console.error('clipboard.writeText失败，尝试降级复制:', err);
+                    const copied = fallbackCopyText(copyText);
+                    if (copied) {
+                        showCopyNotification();
+                    } else {
+                        alert('复制失败，请手动选择后复制');
+                    }
+                });
+                return;
+            }
+
+            const copied = fallbackCopyText(copyText);
+            if (copied) {
                 showCopyNotification();
-            }).catch(err => {
-                console.error('复制失败:', err);
-                // 降级方案
-                const textArea = document.createElement('textarea');
-                textArea.value = copyText;
-                document.body.appendChild(textArea);
-                textArea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textArea);
-                showCopyNotification();
-            });
+            } else {
+                alert('复制失败，请手动选择后复制');
+            }
         }
 
         // 显示复制成功提示
