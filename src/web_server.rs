@@ -732,15 +732,17 @@ async fn home_handler() -> Html<&'static str> {
             if (window.i18n) {
                 await window.i18n.init();
             }
-            // 监听语言切换事件
-            document.addEventListener('languageChanged', function(event) {
+            // 监听语言切换事件（兼容旧事件名）
+            const onLanguageChanged = function(event) {
                 console.log('Language changed to:', event.detail.language);
                 loadStats(); // 重新加载统计信息以应用新语言
                 renderWorkspaceOptions();
                 renderWorkspaceManagerList();
                 updateAuthModalTexts();
                 updateWorkspaceFormTexts();
-            });
+            };
+            document.addEventListener('i18n:languageChanged', onLanguageChanged);
+            document.addEventListener('languageChanged', onLanguageChanged);
 
             restoreUserFromStorage();
             updateAuthUI();
