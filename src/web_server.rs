@@ -341,6 +341,11 @@ async fn home_handler() -> Html<&'static str> {
             background: #f8f9fa;
             border: 1px solid #d0d0d0;
             border-radius: 4px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            line-height: 1;
+            box-sizing: border-box;
         }
         .search-highlight {
             background-color: #ffeb3b;
@@ -448,6 +453,27 @@ async fn home_handler() -> Html<&'static str> {
         .workspace-row:last-child {
             margin-bottom: 0;
         }
+        .upload-progress-track {
+            width: 100%;
+            height: 10px;
+            border-radius: 999px;
+            background: #e5e7eb;
+            overflow: hidden;
+        }
+        .upload-progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+            transition: width 0.2s ease;
+        }
+        .upload-progress-indeterminate .upload-progress-bar {
+            width: 40%;
+            animation: uploadIndeterminate 1.1s infinite ease-in-out;
+        }
+        @keyframes uploadIndeterminate {
+            0% { transform: translateX(-120%); }
+            100% { transform: translateX(320%); }
+        }
     </style>
 </head>
 <body class="min-h-screen excel-bg">
@@ -460,25 +486,17 @@ async fn home_handler() -> Html<&'static str> {
                         <span class="text-green-600 mr-2">📊</span>
                         <span data-i18n="app.title">Excel Master Pro</span>
                     </h1>
-                    <div class="h-6 w-px bg-gray-300"></div>
-                    <div class="flex items-center space-x-2">
-                        <button class="excel-button px-3 py-1 rounded text-sm" onclick="exportData()">
-                            <span data-i18n="toolbar.export">导出</span>
-                        </button>
-                        <button class="excel-button px-3 py-1 rounded text-sm" onclick="refreshData()">
-                            <span data-i18n="toolbar.refresh">刷新</span>
-                        </button>
-                    </div>
                 </div>
                 <div class="flex items-center space-x-4">
                     <!-- Stats Display -->
-                    <div id="stats" class="excel-stats px-4 py-2 text-sm">
+                    <div id="stats" class="excel-stats px-3 text-sm">
                         <span class="text-gray-600" data-i18n="stats.loading">加载中...</span>
                     </div>
                     <div class="h-6 w-px bg-gray-300"></div>
                     <div class="flex items-center space-x-2">
                         <button id="registerBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="showRegister()">注册</button>
                         <button id="loginBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="showLogin()">登录</button>
+                        <button id="manageWorkspaceBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="openWorkspaceManager()" style="display:none;">工作区管理</button>
                         <button id="logoutBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="logout()" style="display:none;">退出</button>
                     </div>
                     <!-- Language Switcher -->
@@ -501,22 +519,13 @@ async fn home_handler() -> Html<&'static str> {
         <!-- Search Section -->
         <div class="bg-white border-b border-gray-300 px-4 py-4">
             <div class="max-w-4xl mx-auto">
-                <div id="workspaceControls" class="flex items-center space-x-3 mb-3" style="display:none;">
-                    <select id="workspaceSelect" class="excel-search-bar px-3 py-2 text-sm min-w-72" onchange="onWorkspaceChange()">
-                        <option value="">公开工作区总搜索</option>
-                    </select>
-                    <button id="createWorkspaceBtn" class="excel-button px-3 py-2 rounded text-sm" onclick="createWorkspace()" disabled>
-                        创建工作区
-                    </button>
-                    <button id="uploadBtn" class="excel-button px-3 py-2 rounded text-sm" onclick="triggerUpload()" disabled>
-                        上传Excel
-                    </button>
-                    <button id="manageWorkspaceBtn" class="excel-button px-3 py-2 rounded text-sm" onclick="openWorkspaceManager()" disabled>
-                        工作区管理
-                    </button>
-                    <input id="uploadInput" type="file" accept=".xlsx,.xls" multiple style="display:none;" onchange="uploadSelectedFiles()">
-                </div>
+                <input id="uploadInput" type="file" accept=".xlsx,.xls" multiple style="display:none;" onchange="uploadSelectedFiles()">
                 <div class="flex items-center space-x-4 mb-3">
+                    <div id="workspaceControls" style="display:none;">
+                        <select id="workspaceSelect" class="excel-search-bar px-3 py-2 text-sm min-w-40" onchange="onWorkspaceChange()">
+                            <option value="">公开工作区总搜索</option>
+                        </select>
+                    </div>
                     <div class="flex-1 relative">
                         <input type="text" id="searchInput" 
                                class="excel-search-bar w-full px-4 py-2 text-sm"
@@ -613,6 +622,11 @@ async fn home_handler() -> Html<&'static str> {
                 <div style="height:12px;"></div>
                 <label class="app-form-label" for="authPasswordInput">密码</label>
                 <input id="authPasswordInput" class="app-form-input" type="password" placeholder="请输入密码">
+                <div id="authConfirmPasswordWrap" style="display:none;">
+                    <div style="height:12px;"></div>
+                    <label class="app-form-label" for="authConfirmPasswordInput">确认密码</label>
+                    <input id="authConfirmPasswordInput" class="app-form-input" type="password" placeholder="请再次输入密码">
+                </div>
                 <div style="height:10px;"></div>
                 <div id="authModalError" class="text-sm text-red-600"></div>
             </div>
@@ -665,6 +679,23 @@ async fn home_handler() -> Html<&'static str> {
         </div>
     </div>
 
+    <div id="uploadProgressBackdrop" class="app-modal-backdrop" style="z-index:1400;">
+        <div class="app-modal" style="max-width: 520px;">
+            <div class="app-modal-header">
+                <span>上传与检索进度</span>
+            </div>
+            <div class="app-modal-body">
+                <div id="uploadProgressText" class="text-sm text-gray-700">准备上传...</div>
+                <div id="uploadProgressDetail" class="text-xs text-gray-500 mt-1"></div>
+                <div style="height:10px;"></div>
+                <div id="uploadProgressTrack" class="upload-progress-track">
+                    <div id="uploadProgressBar" class="upload-progress-bar"></div>
+                </div>
+                <div id="uploadProgressPercent" class="text-xs text-gray-600 mt-2">0%</div>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/i18n.js"></script>
 
     <script>
@@ -678,6 +709,7 @@ async fn home_handler() -> Html<&'static str> {
         let currentQuery = '';
         let currentPage = 0;
         const pageSize = 50;
+        const WORKSPACE_STORAGE_KEY = 'selected_workspace_id';
         let currentToken = localStorage.getItem('auth_token') || '';
         let currentUser = null;
         let workspaceList = [];
@@ -686,6 +718,7 @@ async fn home_handler() -> Html<&'static str> {
         let workspaceFormMode = 'create';
         let editingWorkspaceId = null;
         let uploadWorkspaceId = null;
+        let uploadInProgress = false;
 
         // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', async function() {
@@ -736,6 +769,7 @@ async fn home_handler() -> Html<&'static str> {
             currentUser = null;
             localStorage.removeItem('auth_token');
             localStorage.removeItem('auth_user');
+            localStorage.removeItem(WORKSPACE_STORAGE_KEY);
             updateAuthUI();
         }
 
@@ -744,23 +778,20 @@ async fn home_handler() -> Html<&'static str> {
             const registerBtn = document.getElementById('registerBtn');
             const logoutBtn = document.getElementById('logoutBtn');
             const workspaceControls = document.getElementById('workspaceControls');
-            const createWorkspaceBtn = document.getElementById('createWorkspaceBtn');
             const manageWorkspaceBtn = document.getElementById('manageWorkspaceBtn');
 
             if (currentToken && currentUser && currentUser.username) {
                 loginBtn.style.display = 'none';
                 registerBtn.style.display = 'none';
                 logoutBtn.style.display = 'inline-block';
+                manageWorkspaceBtn.style.display = 'inline-block';
                 workspaceControls.style.display = 'flex';
-                createWorkspaceBtn.disabled = false;
-                manageWorkspaceBtn.disabled = false;
             } else {
                 loginBtn.style.display = 'inline-block';
                 registerBtn.style.display = 'inline-block';
                 logoutBtn.style.display = 'none';
+                manageWorkspaceBtn.style.display = 'none';
                 workspaceControls.style.display = 'none';
-                createWorkspaceBtn.disabled = true;
-                manageWorkspaceBtn.disabled = true;
             }
 
             refreshUploadButtonState();
@@ -773,6 +804,8 @@ async fn home_handler() -> Html<&'static str> {
             document.getElementById('authModalError').textContent = '';
             document.getElementById('authUsernameInput').value = '';
             document.getElementById('authPasswordInput').value = '';
+            document.getElementById('authConfirmPasswordInput').value = '';
+            document.getElementById('authConfirmPasswordWrap').style.display = 'block';
             document.getElementById('authModalBackdrop').style.display = 'flex';
         }
 
@@ -783,6 +816,8 @@ async fn home_handler() -> Html<&'static str> {
             document.getElementById('authModalError').textContent = '';
             document.getElementById('authUsernameInput').value = '';
             document.getElementById('authPasswordInput').value = '';
+            document.getElementById('authConfirmPasswordInput').value = '';
+            document.getElementById('authConfirmPasswordWrap').style.display = 'none';
             document.getElementById('authModalBackdrop').style.display = 'flex';
         }
 
@@ -793,11 +828,16 @@ async fn home_handler() -> Html<&'static str> {
         async function submitAuthForm() {
             const username = document.getElementById('authUsernameInput').value.trim();
             const password = document.getElementById('authPasswordInput').value;
+            const confirmPassword = document.getElementById('authConfirmPasswordInput').value;
             const errorEl = document.getElementById('authModalError');
             errorEl.textContent = '';
 
             if (!username || !password) {
                 errorEl.textContent = '用户名和密码不能为空';
+                return;
+            }
+            if (authModalMode === 'register' && password !== confirmPassword) {
+                errorEl.textContent = '两次输入的密码不一致';
                 return;
             }
 
@@ -815,7 +855,6 @@ async fn home_handler() -> Html<&'static str> {
                 saveSession(data);
                 await loadWorkspaces();
                 closeAuthModal();
-                alert(authModalMode === 'register' ? '注册成功，已自动登录' : '登录成功');
             } catch (e) {
                 errorEl.textContent = e.message;
             }
@@ -854,6 +893,7 @@ async fn home_handler() -> Html<&'static str> {
         function renderWorkspaceOptions() {
             const select = document.getElementById('workspaceSelect');
             const previous = currentWorkspaceId ? String(currentWorkspaceId) : '';
+            const remembered = localStorage.getItem(WORKSPACE_STORAGE_KEY) || '';
             select.innerHTML = '<option value="">公开工作区总搜索</option>';
             workspaceList.forEach((ws) => {
                 const opt = document.createElement('option');
@@ -861,13 +901,35 @@ async fn home_handler() -> Html<&'static str> {
                 opt.textContent = `${ws.is_public ? '公开' : '私有'} | ${ws.name}`;
                 select.appendChild(opt);
             });
-            select.value = previous && Array.from(select.options).some(o => o.value === previous) ? previous : '';
+
+            let targetValue = '';
+            const hasOption = (v) => v && Array.from(select.options).some(o => o.value === v);
+            if (hasOption(previous)) {
+                targetValue = previous;
+            } else if (hasOption(remembered)) {
+                targetValue = remembered;
+            } else if (currentToken && currentUser) {
+                const ownWorkspace = workspaceList.find(w => w.owner_id === currentUser.id);
+                targetValue = ownWorkspace ? String(ownWorkspace.id) : '';
+            }
+
+            select.value = targetValue;
             currentWorkspaceId = select.value ? parseInt(select.value, 10) : null;
+            if (currentWorkspaceId) {
+                localStorage.setItem(WORKSPACE_STORAGE_KEY, String(currentWorkspaceId));
+            } else {
+                localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+            }
         }
 
         function onWorkspaceChange() {
             const value = document.getElementById('workspaceSelect').value;
             currentWorkspaceId = value ? parseInt(value, 10) : null;
+            if (currentWorkspaceId) {
+                localStorage.setItem(WORKSPACE_STORAGE_KEY, String(currentWorkspaceId));
+            } else {
+                localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+            }
             refreshUploadButtonState();
             loadStats();
             if (currentQuery) {
@@ -889,7 +951,9 @@ async fn home_handler() -> Html<&'static str> {
                 ws &&
                 ws.owner_id === currentUser.id
             );
-            uploadBtn.disabled = !canUpload;
+            if (uploadBtn) {
+                uploadBtn.disabled = !canUpload;
+            }
         }
 
         function createWorkspace() {
@@ -973,17 +1037,21 @@ async fn home_handler() -> Html<&'static str> {
                 const workspace = await response.json();
                 await loadWorkspaces();
                 currentWorkspaceId = workspace.id;
+                localStorage.setItem(WORKSPACE_STORAGE_KEY, String(workspace.id));
                 renderWorkspaceOptions();
                 loadStats();
                 closeWorkspaceForm();
                 renderWorkspaceManagerList();
-                alert(isEdit ? '工作区更新成功' : '工作区创建成功');
             } catch (e) {
                 errorEl.textContent = e.message;
             }
         }
 
         function triggerUpload() {
+            if (uploadInProgress) {
+                alert('正在上传处理中，请勿重复操作');
+                return;
+            }
             const ws = getSelectedWorkspace();
             if (!ws) {
                 alert('请先选择一个工作区');
@@ -1049,6 +1117,10 @@ async fn home_handler() -> Html<&'static str> {
         }
 
         function openUploadForWorkspace(workspaceId) {
+            if (uploadInProgress) {
+                alert('正在上传处理中，请勿重复操作');
+                return;
+            }
             uploadWorkspaceId = workspaceId;
             document.getElementById('uploadInput').click();
         }
@@ -1067,6 +1139,7 @@ async fn home_handler() -> Html<&'static str> {
                 }
                 if (currentWorkspaceId === workspaceId) {
                     currentWorkspaceId = null;
+                    localStorage.removeItem(WORKSPACE_STORAGE_KEY);
                 }
                 await loadWorkspaces();
                 renderWorkspaceOptions();
@@ -1075,10 +1148,71 @@ async fn home_handler() -> Html<&'static str> {
                 if (currentQuery) {
                     search(currentQuery, currentPage);
                 }
-                alert('工作区已删除');
             } catch (e) {
                 alert(`删除失败: ${e.message}`);
             }
+        }
+
+        function showUploadProgress() {
+            document.getElementById('uploadProgressBackdrop').style.display = 'flex';
+        }
+
+        function hideUploadProgress() {
+            document.getElementById('uploadProgressBackdrop').style.display = 'none';
+        }
+
+        function setUploadProgress(percent, text, detail, indeterminate = false) {
+            const track = document.getElementById('uploadProgressTrack');
+            const bar = document.getElementById('uploadProgressBar');
+            document.getElementById('uploadProgressText').textContent = text;
+            document.getElementById('uploadProgressDetail').textContent = detail || '';
+            document.getElementById('uploadProgressPercent').textContent = `${Math.max(0, Math.min(100, Math.floor(percent)))}%`;
+            if (indeterminate) {
+                track.classList.add('upload-progress-indeterminate');
+                bar.style.width = '40%';
+            } else {
+                track.classList.remove('upload-progress-indeterminate');
+                bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+            }
+        }
+
+        function uploadOneFileWithProgress(workspaceId, file, fileIndex, totalFiles) {
+            return new Promise((resolve, reject) => {
+                const formData = new FormData();
+                formData.append('files', file);
+
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', `/api/workspaces/${workspaceId}/upload`);
+                if (currentToken) {
+                    xhr.setRequestHeader('Authorization', `Bearer ${currentToken}`);
+                }
+
+                xhr.upload.onprogress = function(event) {
+                    if (!event.lengthComputable) return;
+                    const filePercent = (event.loaded / event.total) * 100;
+                    const overallPercent = ((fileIndex - 1) / totalFiles) * 100 + (filePercent / totalFiles);
+                    const remain = totalFiles - fileIndex;
+                    setUploadProgress(
+                        overallPercent,
+                        `正在上传第 ${fileIndex}/${totalFiles} 个文件`,
+                        `当前文件: ${file.name}，剩余 ${remain} 个`
+                    );
+                };
+
+                xhr.onreadystatechange = function() {
+                    if (xhr.readyState !== XMLHttpRequest.DONE) return;
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve(xhr.responseText);
+                    } else {
+                        reject(new Error(xhr.responseText || `上传失败，状态码 ${xhr.status}`));
+                    }
+                };
+                xhr.onerror = function() {
+                    reject(new Error('网络异常，上传失败'));
+                };
+
+                xhr.send(formData);
+            });
         }
 
         async function uploadSelectedFiles() {
@@ -1086,38 +1220,45 @@ async fn home_handler() -> Html<&'static str> {
             const ws = workspaceId ? workspaceList.find(w => w.id === workspaceId) : null;
             const input = document.getElementById('uploadInput');
             if (!ws || !input.files || input.files.length === 0) return;
+            if (uploadInProgress) {
+                alert('正在上传处理中，请勿重复操作');
+                input.value = '';
+                uploadWorkspaceId = null;
+                return;
+            }
             if (!currentUser || ws.owner_id !== currentUser.id) {
                 alert('仅工作区拥有者可上传');
                 input.value = '';
                 uploadWorkspaceId = null;
                 return;
             }
-
-            const formData = new FormData();
-            Array.from(input.files).forEach(file => {
-                formData.append('files', file);
-            });
+            const filesToUpload = Array.from(input.files);
+            uploadInProgress = true;
+            showUploadProgress();
+            setUploadProgress(0, '准备上传...', `共 ${filesToUpload.length} 个文件`);
 
             try {
-                const response = await fetch(`/api/workspaces/${ws.id}/upload`, {
-                    method: 'POST',
-                    headers: getAuthHeaders(),
-                    body: formData
-                });
-                if (!response.ok) {
-                    throw new Error(await response.text());
+                for (let i = 0; i < filesToUpload.length; i += 1) {
+                    const file = filesToUpload[i];
+                    await uploadOneFileWithProgress(ws.id, file, i + 1, filesToUpload.length);
+                    const donePercent = ((i + 1) / filesToUpload.length) * 100;
+                    setUploadProgress(donePercent, `文件 ${i + 1}/${filesToUpload.length} 上传完成`, `等待服务端检索: ${file.name}`, true);
                 }
-                const result = await response.json();
-                alert(`上传并导入完成，成功导入 ${result.imported_files} 个文件`);
+                setUploadProgress(100, '全部文件上传完成', '正在刷新数据...', false);
                 loadStats();
                 if (currentQuery) {
                     search(currentQuery, currentPage);
                 }
+                setTimeout(() => {
+                    hideUploadProgress();
+                }, 600);
             } catch (e) {
+                hideUploadProgress();
                 alert(`上传失败: ${e.message}`);
             } finally {
                 input.value = '';
                 uploadWorkspaceId = null;
+                uploadInProgress = false;
             }
         }
 
@@ -1654,19 +1795,6 @@ async fn home_handler() -> Html<&'static str> {
             currentPage += direction;
             if (currentPage < 0) currentPage = 0;
             search(currentQuery, currentPage);
-        }
-
-        // 导出数据
-        function exportData() {
-            exportResults();
-        }
-
-        // 刷新数据
-        function refreshData() {
-            loadStats();
-            if (currentQuery) {
-                search(currentQuery, currentPage);
-            }
         }
 
         // 定期更新统计信息

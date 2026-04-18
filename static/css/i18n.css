@@ -31,7 +31,9 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 12px;
+    padding: 4px 12px;
+    height: 32px;
+    box-sizing: border-box;
     background: linear-gradient(to bottom, #ffffff 0%, #f0f0f0 100%);
     border: 1px solid #d0d0d0;
     border-radius: 4px;
