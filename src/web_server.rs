@@ -481,7 +481,7 @@ async fn home_handler() -> Html<&'static str> {
         <!-- Excel-style Toolbar -->
         <div class="excel-toolbar px-4 py-3">
             <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-4">
+                <div class="flex flex-col">
                     <h1 class="text-xl font-bold text-gray-800 flex items-center">
                         <span class="text-green-600 mr-2">📊</span>
                         <span data-i18n="app.title">Excel Master Pro</span>
@@ -595,6 +595,24 @@ async fn home_handler() -> Html<&'static str> {
                 </div>
                 <div class="flex items-center space-x-4">
                     <span data-i18n="app.title">Excel Master Pro</span>
+                    <span class="text-gray-400">|</span>
+                    <a
+                        href="https://github.com/izqutcom/excel-data-hub"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-blue-600 hover:underline"
+                    >
+                        GitHub
+                    </a>
+                    <span class="text-gray-400">|</span>
+                    <a
+                        href="https://gitee.com/izqutcom/excel-data-hub"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-blue-600 hover:underline"
+                    >
+                        Gitee
+                    </a>
                 </div>
             </div>
         </footer>
