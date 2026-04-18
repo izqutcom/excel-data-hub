@@ -1,21 +1,15 @@
+use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Deserialize, Serialize)]
-#[sea_orm(table_name = "files")]
+#[sea_orm(table_name = "users")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    pub workspace_id: Option<i32>,
-    pub uploaded_by: Option<i32>,
     #[sea_orm(unique)]
-    pub file_path: String,
-    pub file_name: String,
-    pub file_size: i64,
-    pub file_hash: String,
-    #[sea_orm(column_type = "Json", nullable)]
-    pub field_order: Option<serde_json::Value>,
+    pub username: String,
+    pub password_hash: String,
     #[sea_orm(column_type = "TimestampWithTimeZone")]
     pub created_at: DateTime<Utc>,
     #[sea_orm(column_type = "TimestampWithTimeZone")]
@@ -24,17 +18,13 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(
-        belongs_to = "super::workspaces::Entity",
-        from = "Column::WorkspaceId",
-        to = "super::workspaces::Column::Id"
-    )]
-    Workspace,
+    #[sea_orm(has_many = "super::workspaces::Entity")]
+    Workspaces,
 }
 
 impl Related<super::workspaces::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Workspace.def()
+        Relation::Workspaces.def()
     }
 }
 

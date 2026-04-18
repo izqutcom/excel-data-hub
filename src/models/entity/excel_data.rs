@@ -8,6 +8,7 @@ use serde_json::Value as JsonValue;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
+    pub workspace_id: Option<i32>,
     pub file_id: i32,
     #[sea_orm(column_type = "TimestampWithTimeZone")]
     pub import_time: DateTime<Utc>,
@@ -26,11 +27,23 @@ pub enum Relation {
         to = "super::files::Column::Id"
     )]
     Files,
+    #[sea_orm(
+        belongs_to = "super::workspaces::Entity",
+        from = "Column::WorkspaceId",
+        to = "super::workspaces::Column::Id"
+    )]
+    Workspace,
 }
 
 impl Related<super::files::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Files.def()
+    }
+}
+
+impl Related<super::workspaces::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Workspace.def()
     }
 }
 

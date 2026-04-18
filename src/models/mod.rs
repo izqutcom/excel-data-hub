@@ -8,6 +8,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExcelData {
     pub id: Option<i32>,
+    pub workspace_id: Option<i32>,
     pub file_id: i32,
     pub import_time: DateTime<Utc>,
     pub row_number: i32,
@@ -31,6 +32,30 @@ pub struct StatsResponse {
     pub total_rows: i64,
     pub total_files: i64,
     pub last_update: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserResponse {
+    pub id: i32,
+    pub username: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthResponse {
+    pub token: String,
+    pub expires_at: DateTime<Utc>,
+    pub user: UserResponse,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceResponse {
+    pub id: i32,
+    pub owner_id: i32,
+    pub name: String,
+    pub description: Option<String>,
+    pub is_public: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,22 +1,29 @@
-use crate::models::{SearchResponse, StatsResponse, LanguageResponse, TranslationResponse, 
-                   BatchTranslationResponse, BatchTranslationRequest, 
-                   I18nStatusResponse};
+use crate::models::{
+    AuthResponse, BatchTranslationRequest, BatchTranslationResponse, I18nStatusResponse, LanguageResponse, SearchResponse,
+    StatsResponse, TranslationResponse, UserResponse, WorkspaceResponse,
+};
+use crate::models::entity::{auth_tokens, files, users, workspaces};
 use crate::i18n_manager::I18nManager;
 use axum::{
-    extract::{Query, State, Path},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::{StatusCode, header, HeaderMap},
     response::{Html, Response},
-    routing::{get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use tower_http::services::ServeDir;
 use sea_orm::DatabaseConnection;
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use tokio::fs;
 use std::net::SocketAddr;
+use std::path::Path as StdPath;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tower_http::cors::CorsLayer;
-use tracing::{info, debug};
+use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 #[derive(Clone)]
 struct StatsCache {
@@ -60,16 +67,99 @@ struct AppState {
     db: DatabaseConnection,
     i18n_manager: Arc<Mutex<I18nManager>>,
     stats_cache: Arc<Mutex<StatsCache>>,
+    upload_dir: String,
 }
 
 #[derive(Deserialize)]
 pub struct SearchQuery {
     q: Option<String>,
+    workspace_id: Option<i32>,
     limit: Option<i64>,
     offset: Option<i64>,
 }
 
+#[derive(Deserialize)]
+pub struct StatsQuery {
+    workspace_id: Option<i32>,
+}
+
+#[derive(Deserialize)]
+pub struct RegisterRequest {
+    username: String,
+    password: String,
+}
+
+#[derive(Deserialize)]
+pub struct LoginRequest {
+    username: String,
+    password: String,
+}
+
+#[derive(Deserialize)]
+pub struct CreateWorkspaceRequest {
+    name: String,
+    description: Option<String>,
+    is_public: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateWorkspaceRequest {
+    name: Option<String>,
+    description: Option<String>,
+    is_public: Option<bool>,
+}
+
+fn hash_password(password: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(password.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn bearer_token_from_headers(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(|s| s.trim().to_string())
+}
+
+async fn authenticate_user(headers: &HeaderMap, db: &DatabaseConnection) -> Result<users::Model, (StatusCode, String)> {
+    let token = bearer_token_from_headers(headers)
+        .ok_or((StatusCode::UNAUTHORIZED, "缺少认证Token".to_string()))?;
+
+    let now = chrono::Utc::now();
+    let token_model = auth_tokens::Entity::find()
+        .filter(auth_tokens::Column::Token.eq(token))
+        .filter(auth_tokens::Column::ExpiresAt.gte(now))
+        .one(db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("查询Token失败: {}", e)))?
+        .ok_or((StatusCode::UNAUTHORIZED, "Token无效或已过期".to_string()))?;
+
+    users::Entity::find_by_id(token_model.user_id)
+        .one(db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("查询用户失败: {}", e)))?
+        .ok_or((StatusCode::UNAUTHORIZED, "用户不存在".to_string()))
+}
+
+async fn get_workspace_by_id(
+    db: &DatabaseConnection,
+    workspace_id: i32,
+) -> Result<workspaces::Model, (StatusCode, String)> {
+    workspaces::Entity::find_by_id(workspace_id)
+        .one(db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("查询workspace失败: {}", e)))?
+        .ok_or((StatusCode::NOT_FOUND, "workspace不存在".to_string()))
+}
+
 pub async fn start_server(db: DatabaseConnection, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    let upload_dir = std::env::var("UPLOAD_DIR").unwrap_or_else(|_| "./uploads".to_string());
+    if !StdPath::new(&upload_dir).exists() {
+        fs::create_dir_all(&upload_dir).await?;
+    }
+
     // 初始化多语言管理器
     info!("初始化多语言管理器...");
     let i18n_manager = Arc::new(Mutex::new(I18nManager::new()?));
@@ -88,12 +178,18 @@ pub async fn start_server(db: DatabaseConnection, port: u16) -> Result<(), Box<d
         db: db.clone(),
         i18n_manager: i18n_manager.clone(),
         stats_cache: stats_cache.clone(),
+        upload_dir,
     };
     
     // 创建路由
     info!("创建路由...");
     let app = Router::new()
         .route("/", get(home_handler))
+        .route("/api/auth/register", post(register_handler))
+        .route("/api/auth/login", post(login_handler))
+        .route("/api/workspaces", get(list_workspaces_handler).post(create_workspace_handler))
+        .route("/api/workspaces/{id}", put(update_workspace_handler).delete(delete_workspace_handler))
+        .route("/api/workspaces/{id}/upload", post(upload_to_workspace_handler))
         .route("/api/search", get(search_handler))
         .route("/api/stats", get(stats_handler))
         .route("/api/export", get(export_handler))
@@ -105,6 +201,7 @@ pub async fn start_server(db: DatabaseConnection, port: u16) -> Result<(), Box<d
         .route("/api/i18n/reload", post(reload_translations_handler))
         // 静态文件服务
         .nest_service("/static", ServeDir::new("static"))
+        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
         .layer(cors)
         .with_state(app_state);
     debug!("路由创建完成");
@@ -274,6 +371,83 @@ async fn home_handler() -> Html<&'static str> {
             -moz-user-select: none;
             -ms-user-select: none;
         }
+        .app-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 16px;
+        }
+        #authModalBackdrop {
+            z-index: 1300;
+        }
+        #workspaceFormBackdrop {
+            z-index: 1300;
+        }
+        #workspaceManagerBackdrop {
+            z-index: 1200;
+        }
+        .app-modal {
+            width: 100%;
+            max-width: 560px;
+            background: #fff;
+            border: 1px solid #d0d0d0;
+            border-radius: 10px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+            overflow: hidden;
+        }
+        .app-modal-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid #e5e7eb;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .app-modal-body {
+            padding: 16px;
+        }
+        .app-modal-footer {
+            padding: 12px 16px;
+            border-top: 1px solid #e5e7eb;
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        .app-form-label {
+            display: block;
+            font-size: 13px;
+            color: #374151;
+            margin-bottom: 6px;
+        }
+        .app-form-input {
+            width: 100%;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 14px;
+            outline: none;
+        }
+        .app-form-input:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 1px #2563eb;
+        }
+        .workspace-row {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+        .workspace-row:last-child {
+            margin-bottom: 0;
+        }
     </style>
 </head>
 <body class="min-h-screen excel-bg">
@@ -301,6 +475,12 @@ async fn home_handler() -> Html<&'static str> {
                     <div id="stats" class="excel-stats px-4 py-2 text-sm">
                         <span class="text-gray-600" data-i18n="stats.loading">加载中...</span>
                     </div>
+                    <div class="h-6 w-px bg-gray-300"></div>
+                    <div class="flex items-center space-x-2">
+                        <button id="registerBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="showRegister()">注册</button>
+                        <button id="loginBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="showLogin()">登录</button>
+                        <button id="logoutBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="logout()" style="display:none;">退出</button>
+                    </div>
                     <!-- Language Switcher -->
                     <div class="language-switcher">
                         <button class="language-switcher-button" onclick="toggleLanguageDropdown()">
@@ -321,6 +501,21 @@ async fn home_handler() -> Html<&'static str> {
         <!-- Search Section -->
         <div class="bg-white border-b border-gray-300 px-4 py-4">
             <div class="max-w-4xl mx-auto">
+                <div id="workspaceControls" class="flex items-center space-x-3 mb-3" style="display:none;">
+                    <select id="workspaceSelect" class="excel-search-bar px-3 py-2 text-sm min-w-72" onchange="onWorkspaceChange()">
+                        <option value="">公开工作区总搜索</option>
+                    </select>
+                    <button id="createWorkspaceBtn" class="excel-button px-3 py-2 rounded text-sm" onclick="createWorkspace()" disabled>
+                        创建工作区
+                    </button>
+                    <button id="uploadBtn" class="excel-button px-3 py-2 rounded text-sm" onclick="triggerUpload()" disabled>
+                        上传Excel
+                    </button>
+                    <button id="manageWorkspaceBtn" class="excel-button px-3 py-2 rounded text-sm" onclick="openWorkspaceManager()" disabled>
+                        工作区管理
+                    </button>
+                    <input id="uploadInput" type="file" accept=".xlsx,.xls" multiple style="display:none;" onchange="uploadSelectedFiles()">
+                </div>
                 <div class="flex items-center space-x-4 mb-3">
                     <div class="flex-1 relative">
                         <input type="text" id="searchInput" 
@@ -406,6 +601,70 @@ async fn home_handler() -> Html<&'static str> {
         <span id="directionText">LTR</span>
     </div>
 
+    <div id="authModalBackdrop" class="app-modal-backdrop">
+        <div class="app-modal">
+            <div class="app-modal-header">
+                <span id="authModalTitle">登录</span>
+                <button class="excel-button px-2 py-1 rounded text-sm" onclick="closeAuthModal()">关闭</button>
+            </div>
+            <div class="app-modal-body">
+                <label class="app-form-label" for="authUsernameInput">用户名</label>
+                <input id="authUsernameInput" class="app-form-input" type="text" placeholder="请输入用户名">
+                <div style="height:12px;"></div>
+                <label class="app-form-label" for="authPasswordInput">密码</label>
+                <input id="authPasswordInput" class="app-form-input" type="password" placeholder="请输入密码">
+                <div style="height:10px;"></div>
+                <div id="authModalError" class="text-sm text-red-600"></div>
+            </div>
+            <div class="app-modal-footer">
+                <button class="excel-button px-3 py-2 rounded text-sm" onclick="closeAuthModal()">取消</button>
+                <button id="authSubmitBtn" class="excel-button px-3 py-2 rounded text-sm" onclick="submitAuthForm()">提交</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="workspaceFormBackdrop" class="app-modal-backdrop">
+        <div class="app-modal">
+            <div class="app-modal-header">
+                <span id="workspaceFormTitle">创建工作区</span>
+                <button class="excel-button px-2 py-1 rounded text-sm" onclick="closeWorkspaceForm()">关闭</button>
+            </div>
+            <div class="app-modal-body">
+                <label class="app-form-label" for="workspaceNameInput">工作区名称</label>
+                <input id="workspaceNameInput" class="app-form-input" type="text" placeholder="请输入工作区名称">
+                <div style="height:12px;"></div>
+                <label class="app-form-label" for="workspaceDescInput">描述</label>
+                <input id="workspaceDescInput" class="app-form-input" type="text" placeholder="可选描述">
+                <div style="height:12px;"></div>
+                <label class="app-form-label">
+                    <input id="workspacePublicInput" type="checkbox">
+                    公开工作区
+                </label>
+                <div id="workspaceFormError" class="text-sm text-red-600"></div>
+            </div>
+            <div class="app-modal-footer">
+                <button class="excel-button px-3 py-2 rounded text-sm" onclick="closeWorkspaceForm()">取消</button>
+                <button id="workspaceSubmitBtn" class="excel-button px-3 py-2 rounded text-sm" onclick="submitWorkspaceForm()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="workspaceManagerBackdrop" class="app-modal-backdrop">
+        <div class="app-modal" style="max-width: 760px;">
+            <div class="app-modal-header">
+                <span>工作区管理</span>
+                <button class="excel-button px-2 py-1 rounded text-sm" onclick="closeWorkspaceManager()">关闭</button>
+            </div>
+            <div class="app-modal-body">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <span class="text-sm text-gray-600">可编辑、删除、上传文件到你拥有的工作区</span>
+                    <button class="excel-button px-3 py-2 rounded text-sm" onclick="openWorkspaceForm('create')">新建工作区</button>
+                </div>
+                <div id="workspaceManagerList"></div>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/i18n.js"></script>
 
     <script>
@@ -419,6 +678,14 @@ async fn home_handler() -> Html<&'static str> {
         let currentQuery = '';
         let currentPage = 0;
         const pageSize = 50;
+        let currentToken = localStorage.getItem('auth_token') || '';
+        let currentUser = null;
+        let workspaceList = [];
+        let currentWorkspaceId = null;
+        let authModalMode = 'login';
+        let workspaceFormMode = 'create';
+        let editingWorkspaceId = null;
+        let uploadWorkspaceId = null;
 
         // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', async function() {
@@ -432,9 +699,427 @@ async fn home_handler() -> Html<&'static str> {
                 loadStats(); // 重新加载统计信息以应用新语言
             });
 
+            restoreUserFromStorage();
+            updateAuthUI();
+            await loadWorkspaces();
             loadStats();
             document.getElementById('searchInput').focus();
         });
+
+        function getAuthHeaders() {
+            const headers = {};
+            if (currentToken) {
+                headers['Authorization'] = `Bearer ${currentToken}`;
+            }
+            return headers;
+        }
+
+        function restoreUserFromStorage() {
+            try {
+                const userRaw = localStorage.getItem('auth_user');
+                currentUser = userRaw ? JSON.parse(userRaw) : null;
+            } catch (e) {
+                currentUser = null;
+            }
+        }
+
+        function saveSession(authData) {
+            currentToken = authData.token || '';
+            currentUser = authData.user || null;
+            localStorage.setItem('auth_token', currentToken);
+            localStorage.setItem('auth_user', JSON.stringify(currentUser || {}));
+            updateAuthUI();
+        }
+
+        function clearSession() {
+            currentToken = '';
+            currentUser = null;
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('auth_user');
+            updateAuthUI();
+        }
+
+        function updateAuthUI() {
+            const loginBtn = document.getElementById('loginBtn');
+            const registerBtn = document.getElementById('registerBtn');
+            const logoutBtn = document.getElementById('logoutBtn');
+            const workspaceControls = document.getElementById('workspaceControls');
+            const createWorkspaceBtn = document.getElementById('createWorkspaceBtn');
+            const manageWorkspaceBtn = document.getElementById('manageWorkspaceBtn');
+
+            if (currentToken && currentUser && currentUser.username) {
+                loginBtn.style.display = 'none';
+                registerBtn.style.display = 'none';
+                logoutBtn.style.display = 'inline-block';
+                workspaceControls.style.display = 'flex';
+                createWorkspaceBtn.disabled = false;
+                manageWorkspaceBtn.disabled = false;
+            } else {
+                loginBtn.style.display = 'inline-block';
+                registerBtn.style.display = 'inline-block';
+                logoutBtn.style.display = 'none';
+                workspaceControls.style.display = 'none';
+                createWorkspaceBtn.disabled = true;
+                manageWorkspaceBtn.disabled = true;
+            }
+
+            refreshUploadButtonState();
+        }
+
+        function showRegister() {
+            authModalMode = 'register';
+            document.getElementById('authModalTitle').textContent = '注册账号';
+            document.getElementById('authSubmitBtn').textContent = '注册并登录';
+            document.getElementById('authModalError').textContent = '';
+            document.getElementById('authUsernameInput').value = '';
+            document.getElementById('authPasswordInput').value = '';
+            document.getElementById('authModalBackdrop').style.display = 'flex';
+        }
+
+        function showLogin() {
+            authModalMode = 'login';
+            document.getElementById('authModalTitle').textContent = '用户登录';
+            document.getElementById('authSubmitBtn').textContent = '登录';
+            document.getElementById('authModalError').textContent = '';
+            document.getElementById('authUsernameInput').value = '';
+            document.getElementById('authPasswordInput').value = '';
+            document.getElementById('authModalBackdrop').style.display = 'flex';
+        }
+
+        function closeAuthModal() {
+            document.getElementById('authModalBackdrop').style.display = 'none';
+        }
+
+        async function submitAuthForm() {
+            const username = document.getElementById('authUsernameInput').value.trim();
+            const password = document.getElementById('authPasswordInput').value;
+            const errorEl = document.getElementById('authModalError');
+            errorEl.textContent = '';
+
+            if (!username || !password) {
+                errorEl.textContent = '用户名和密码不能为空';
+                return;
+            }
+
+            const url = authModalMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+                const data = await response.json();
+                saveSession(data);
+                await loadWorkspaces();
+                closeAuthModal();
+                alert(authModalMode === 'register' ? '注册成功，已自动登录' : '登录成功');
+            } catch (e) {
+                errorEl.textContent = e.message;
+            }
+        }
+
+        function logout() {
+            clearSession();
+            workspaceList = workspaceList.filter(w => w.is_public);
+            const select = document.getElementById('workspaceSelect');
+            select.value = '';
+            currentWorkspaceId = null;
+            renderWorkspaceOptions();
+            loadStats();
+            if (currentQuery) {
+                search(currentQuery, currentPage);
+            }
+        }
+
+        async function loadWorkspaces() {
+            try {
+                const response = await fetch('/api/workspaces', {
+                    headers: getAuthHeaders()
+                });
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+                workspaceList = await response.json();
+                renderWorkspaceOptions();
+                refreshUploadButtonState();
+                renderWorkspaceManagerList();
+            } catch (e) {
+                console.error('加载工作区失败:', e);
+            }
+        }
+
+        function renderWorkspaceOptions() {
+            const select = document.getElementById('workspaceSelect');
+            const previous = currentWorkspaceId ? String(currentWorkspaceId) : '';
+            select.innerHTML = '<option value="">公开工作区总搜索</option>';
+            workspaceList.forEach((ws) => {
+                const opt = document.createElement('option');
+                opt.value = String(ws.id);
+                opt.textContent = `${ws.is_public ? '公开' : '私有'} | ${ws.name}`;
+                select.appendChild(opt);
+            });
+            select.value = previous && Array.from(select.options).some(o => o.value === previous) ? previous : '';
+            currentWorkspaceId = select.value ? parseInt(select.value, 10) : null;
+        }
+
+        function onWorkspaceChange() {
+            const value = document.getElementById('workspaceSelect').value;
+            currentWorkspaceId = value ? parseInt(value, 10) : null;
+            refreshUploadButtonState();
+            loadStats();
+            if (currentQuery) {
+                search(currentQuery, currentPage);
+            }
+        }
+
+        function getSelectedWorkspace() {
+            if (!currentWorkspaceId) return null;
+            return workspaceList.find(w => w.id === currentWorkspaceId) || null;
+        }
+
+        function refreshUploadButtonState() {
+            const uploadBtn = document.getElementById('uploadBtn');
+            const ws = getSelectedWorkspace();
+            const canUpload = Boolean(
+                currentToken &&
+                currentUser &&
+                ws &&
+                ws.owner_id === currentUser.id
+            );
+            uploadBtn.disabled = !canUpload;
+        }
+
+        function createWorkspace() {
+            if (!currentToken) {
+                alert('请先登录');
+                return;
+            }
+            openWorkspaceForm('create');
+        }
+
+        function openWorkspaceForm(mode, workspaceId = null) {
+            workspaceFormMode = mode;
+            editingWorkspaceId = workspaceId;
+            const title = document.getElementById('workspaceFormTitle');
+            const submitBtn = document.getElementById('workspaceSubmitBtn');
+            const errorEl = document.getElementById('workspaceFormError');
+            const nameEl = document.getElementById('workspaceNameInput');
+            const descEl = document.getElementById('workspaceDescInput');
+            const publicEl = document.getElementById('workspacePublicInput');
+
+            errorEl.textContent = '';
+            if (mode === 'edit' && workspaceId) {
+                const ws = workspaceList.find(w => w.id === workspaceId);
+                if (!ws) {
+                    alert('未找到工作区');
+                    return;
+                }
+                title.textContent = '编辑工作区';
+                submitBtn.textContent = '保存修改';
+                nameEl.value = ws.name || '';
+                descEl.value = ws.description || '';
+                publicEl.checked = !!ws.is_public;
+            } else {
+                title.textContent = '创建工作区';
+                submitBtn.textContent = '创建';
+                nameEl.value = '';
+                descEl.value = '';
+                publicEl.checked = false;
+            }
+
+            document.getElementById('workspaceFormBackdrop').style.display = 'flex';
+        }
+
+        function closeWorkspaceForm() {
+            document.getElementById('workspaceFormBackdrop').style.display = 'none';
+        }
+
+        async function submitWorkspaceForm() {
+            if (!currentToken) {
+                alert('请先登录');
+                return;
+            }
+            const name = document.getElementById('workspaceNameInput').value.trim();
+            const description = document.getElementById('workspaceDescInput').value.trim();
+            const isPublic = document.getElementById('workspacePublicInput').checked;
+            const errorEl = document.getElementById('workspaceFormError');
+            errorEl.textContent = '';
+
+            if (!name) {
+                errorEl.textContent = '工作区名称不能为空';
+                return;
+            }
+
+            try {
+                const isEdit = workspaceFormMode === 'edit' && editingWorkspaceId;
+                const response = await fetch(isEdit ? `/api/workspaces/${editingWorkspaceId}` : '/api/workspaces', {
+                    method: isEdit ? 'PUT' : 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...getAuthHeaders()
+                    },
+                    body: JSON.stringify({
+                        name,
+                        description: description || null,
+                        is_public: Boolean(isPublic)
+                    })
+                });
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+                const workspace = await response.json();
+                await loadWorkspaces();
+                currentWorkspaceId = workspace.id;
+                renderWorkspaceOptions();
+                loadStats();
+                closeWorkspaceForm();
+                renderWorkspaceManagerList();
+                alert(isEdit ? '工作区更新成功' : '工作区创建成功');
+            } catch (e) {
+                errorEl.textContent = e.message;
+            }
+        }
+
+        function triggerUpload() {
+            const ws = getSelectedWorkspace();
+            if (!ws) {
+                alert('请先选择一个工作区');
+                return;
+            }
+            if (!currentToken || !currentUser || ws.owner_id !== currentUser.id) {
+                alert('仅工作区拥有者可上传');
+                return;
+            }
+            uploadWorkspaceId = ws.id;
+            document.getElementById('uploadInput').click();
+        }
+
+        function openWorkspaceManager() {
+            if (!currentToken) {
+                alert('请先登录');
+                return;
+            }
+            renderWorkspaceManagerList();
+            document.getElementById('workspaceManagerBackdrop').style.display = 'flex';
+        }
+
+        function closeWorkspaceManager() {
+            document.getElementById('workspaceManagerBackdrop').style.display = 'none';
+        }
+
+        function renderWorkspaceManagerList() {
+            const listEl = document.getElementById('workspaceManagerList');
+            if (!listEl) return;
+            if (!currentUser) {
+                listEl.innerHTML = '<div class="text-sm text-gray-500">请先登录。</div>';
+                return;
+            }
+
+            const ownWorkspaces = workspaceList.filter(w => w.owner_id === currentUser.id);
+            if (ownWorkspaces.length === 0) {
+                listEl.innerHTML = '<div class="text-sm text-gray-500">你还没有工作区，点击右上角“新建工作区”创建。</div>';
+                return;
+            }
+
+            listEl.innerHTML = ownWorkspaces.map((ws) => `
+                <div class="workspace-row">
+                    <div>
+                        <div class="text-sm font-semibold text-gray-800">${ws.name}</div>
+                        <div class="text-xs text-gray-500 mt-1">${ws.description || '无描述'}</div>
+                        <div class="text-xs mt-1 ${ws.is_public ? 'text-green-600' : 'text-gray-500'}">${ws.is_public ? '公开' : '私有'}</div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button class="excel-button px-2 py-1 rounded text-sm" onclick="selectWorkspaceFromManager(${ws.id})">进入</button>
+                        <button class="excel-button px-2 py-1 rounded text-sm" onclick="openWorkspaceForm('edit', ${ws.id})">编辑</button>
+                        <button class="excel-button px-2 py-1 rounded text-sm" onclick="openUploadForWorkspace(${ws.id})">上传</button>
+                        <button class="excel-button px-2 py-1 rounded text-sm text-red-600" onclick="deleteWorkspace(${ws.id})">删除</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function selectWorkspaceFromManager(workspaceId) {
+            currentWorkspaceId = workspaceId;
+            renderWorkspaceOptions();
+            onWorkspaceChange();
+            closeWorkspaceManager();
+        }
+
+        function openUploadForWorkspace(workspaceId) {
+            uploadWorkspaceId = workspaceId;
+            document.getElementById('uploadInput').click();
+        }
+
+        async function deleteWorkspace(workspaceId) {
+            if (!confirm('确认删除此工作区吗？\n工作区内已上传数据会被一并删除且不可恢复。')) {
+                return;
+            }
+            try {
+                const response = await fetch(`/api/workspaces/${workspaceId}`, {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+                if (currentWorkspaceId === workspaceId) {
+                    currentWorkspaceId = null;
+                }
+                await loadWorkspaces();
+                renderWorkspaceOptions();
+                renderWorkspaceManagerList();
+                loadStats();
+                if (currentQuery) {
+                    search(currentQuery, currentPage);
+                }
+                alert('工作区已删除');
+            } catch (e) {
+                alert(`删除失败: ${e.message}`);
+            }
+        }
+
+        async function uploadSelectedFiles() {
+            const workspaceId = uploadWorkspaceId || currentWorkspaceId;
+            const ws = workspaceId ? workspaceList.find(w => w.id === workspaceId) : null;
+            const input = document.getElementById('uploadInput');
+            if (!ws || !input.files || input.files.length === 0) return;
+            if (!currentUser || ws.owner_id !== currentUser.id) {
+                alert('仅工作区拥有者可上传');
+                input.value = '';
+                uploadWorkspaceId = null;
+                return;
+            }
+
+            const formData = new FormData();
+            Array.from(input.files).forEach(file => {
+                formData.append('files', file);
+            });
+
+            try {
+                const response = await fetch(`/api/workspaces/${ws.id}/upload`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: formData
+                });
+                if (!response.ok) {
+                    throw new Error(await response.text());
+                }
+                const result = await response.json();
+                alert(`上传并导入完成，成功导入 ${result.imported_files} 个文件`);
+                loadStats();
+                if (currentQuery) {
+                    search(currentQuery, currentPage);
+                }
+            } catch (e) {
+                alert(`上传失败: ${e.message}`);
+            } finally {
+                input.value = '';
+                uploadWorkspaceId = null;
+            }
+        }
 
         // 语言切换器相关函数
         function toggleLanguageDropdown() {
@@ -452,7 +1137,10 @@ async fn home_handler() -> Html<&'static str> {
 
         // 加载统计信息
         function loadStats() {
-            fetch('/api/stats')
+            const workspaceParam = currentWorkspaceId ? `?workspace_id=${currentWorkspaceId}` : '';
+            fetch(`/api/stats${workspaceParam}`, {
+                headers: getAuthHeaders()
+            })
                 .then(response => response.json())
                 .then(data => {
                     const totalFiles = window.i18n ? window.i18n.translate('stats.total_files') : '文件';
@@ -513,7 +1201,10 @@ async fn home_handler() -> Html<&'static str> {
             // 处理多关键词搜索 - 提取关键词用于高亮显示
             const keywords = query.trim().split(/\s+/).filter(k => k.length > 0);
 
-            fetch(`/api/search?q=${encodeURIComponent(query)}&limit=${pageSize}&offset=${offset}`)
+            const workspaceParam = currentWorkspaceId ? `&workspace_id=${currentWorkspaceId}` : '';
+            fetch(`/api/search?q=${encodeURIComponent(query)}&limit=${pageSize}&offset=${offset}${workspaceParam}`, {
+                headers: getAuthHeaders()
+            })
                 .then(response => response.json())
                 .then(data => {
                     displayResults(data, keywords);
@@ -1079,26 +1770,34 @@ async fn home_handler() -> Html<&'static str> {
             exportBtn.disabled = true;
             exportBtn.textContent = '导出中...';
 
-            // 构建导出URL
-            const exportUrl = `/api/export?q=${encodeURIComponent(query)}`;
-            
-            // 创建隐藏的下载链接
-            const link = document.createElement('a');
-            link.href = exportUrl;
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            
-            // 触发下载
-            link.click();
-            
-            // 清理
-            document.body.removeChild(link);
-            
-            // 恢复按钮状态
-            setTimeout(() => {
+            const workspaceParam = currentWorkspaceId ? `&workspace_id=${currentWorkspaceId}` : '';
+            const exportUrl = `/api/export?q=${encodeURIComponent(query)}${workspaceParam}`;
+
+            fetch(exportUrl, {
+                headers: getAuthHeaders()
+            })
+            .then(async (resp) => {
+                if (!resp.ok) throw new Error(await resp.text());
+                return resp.blob();
+            })
+            .then((blob) => {
+                const blobUrl = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = `搜索结果导出_${Date.now()}.xlsx`;
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(blobUrl);
+            })
+            .catch((err) => {
+                alert(`导出失败: ${err.message}`);
+            })
+            .finally(() => {
                 exportBtn.disabled = false;
                 exportBtn.textContent = '导出Excel';
-            }, 1000);
+            });
         }
     </script>
 </body>
@@ -1106,12 +1805,371 @@ async fn home_handler() -> Html<&'static str> {
     "#)
 }
 
+async fn register_handler(
+    State(app_state): State<AppState>,
+    Json(payload): Json<RegisterRequest>,
+) -> Result<Json<AuthResponse>, (StatusCode, String)> {
+    let username = payload.username.trim();
+    if username.is_empty() || payload.password.len() < 6 {
+        return Err((StatusCode::BAD_REQUEST, "用户名不能为空且密码至少6位".to_string()));
+    }
+
+    let existing = users::Entity::find()
+        .filter(users::Column::Username.eq(username))
+        .one(&app_state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("查询用户失败: {}", e)))?;
+    if existing.is_some() {
+        return Err((StatusCode::CONFLICT, "用户名已存在".to_string()));
+    }
+
+    let now = chrono::Utc::now();
+    let user = users::ActiveModel {
+        id: Default::default(),
+        username: Set(username.to_string()),
+        password_hash: Set(hash_password(&payload.password)),
+        created_at: Set(now),
+        updated_at: Set(now),
+    }
+    .insert(&app_state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("创建用户失败: {}", e)))?;
+
+    let token = Uuid::new_v4().to_string();
+    let expires_at = now + chrono::Duration::days(30);
+    auth_tokens::ActiveModel {
+        id: Default::default(),
+        user_id: Set(user.id),
+        token: Set(token.clone()),
+        expires_at: Set(expires_at),
+        created_at: Set(now),
+    }
+    .insert(&app_state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("保存Token失败: {}", e)))?;
+
+    Ok(Json(AuthResponse {
+        token,
+        expires_at,
+        user: UserResponse {
+            id: user.id,
+            username: user.username,
+        },
+    }))
+}
+
+async fn login_handler(
+    State(app_state): State<AppState>,
+    Json(payload): Json<LoginRequest>,
+) -> Result<Json<AuthResponse>, (StatusCode, String)> {
+    let username = payload.username.trim();
+    let user = users::Entity::find()
+        .filter(users::Column::Username.eq(username))
+        .one(&app_state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("查询用户失败: {}", e)))?
+        .ok_or((StatusCode::UNAUTHORIZED, "用户名或密码错误".to_string()))?;
+
+    if user.password_hash != hash_password(&payload.password) {
+        return Err((StatusCode::UNAUTHORIZED, "用户名或密码错误".to_string()));
+    }
+
+    let now = chrono::Utc::now();
+    let token = Uuid::new_v4().to_string();
+    let expires_at = now + chrono::Duration::days(30);
+    auth_tokens::ActiveModel {
+        id: Default::default(),
+        user_id: Set(user.id),
+        token: Set(token.clone()),
+        expires_at: Set(expires_at),
+        created_at: Set(now),
+    }
+    .insert(&app_state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("保存Token失败: {}", e)))?;
+
+    Ok(Json(AuthResponse {
+        token,
+        expires_at,
+        user: UserResponse {
+            id: user.id,
+            username: user.username,
+        },
+    }))
+}
+
+async fn create_workspace_handler(
+    State(app_state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateWorkspaceRequest>,
+) -> Result<Json<WorkspaceResponse>, (StatusCode, String)> {
+    let user = authenticate_user(&headers, &app_state.db).await?;
+    let name = payload.name.trim();
+    if name.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "workspace名称不能为空".to_string()));
+    }
+
+    let duplicate = workspaces::Entity::find()
+        .filter(workspaces::Column::OwnerId.eq(user.id))
+        .filter(workspaces::Column::Name.eq(name))
+        .one(&app_state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("查询workspace失败: {}", e)))?;
+    if duplicate.is_some() {
+        return Err((StatusCode::CONFLICT, "该名称已存在".to_string()));
+    }
+
+    let now = chrono::Utc::now();
+    let model = workspaces::ActiveModel {
+        id: Default::default(),
+        owner_id: Set(user.id),
+        name: Set(name.to_string()),
+        description: Set(payload.description),
+        is_public: Set(payload.is_public.unwrap_or(false)),
+        created_at: Set(now),
+        updated_at: Set(now),
+    }
+    .insert(&app_state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("创建workspace失败: {}", e)))?;
+
+    Ok(Json(WorkspaceResponse {
+        id: model.id,
+        owner_id: model.owner_id,
+        name: model.name,
+        description: model.description,
+        is_public: model.is_public,
+        created_at: model.created_at,
+        updated_at: model.updated_at,
+    }))
+}
+
+async fn update_workspace_handler(
+    State(app_state): State<AppState>,
+    Path(workspace_id): Path<i32>,
+    headers: HeaderMap,
+    Json(payload): Json<UpdateWorkspaceRequest>,
+) -> Result<Json<WorkspaceResponse>, (StatusCode, String)> {
+    let user = authenticate_user(&headers, &app_state.db).await?;
+    let existing = get_workspace_by_id(&app_state.db, workspace_id).await?;
+    if existing.owner_id != user.id {
+        return Err((StatusCode::FORBIDDEN, "仅workspace拥有者可编辑".to_string()));
+    }
+
+    let mut new_name = existing.name.clone();
+    if let Some(name) = payload.name.as_deref() {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err((StatusCode::BAD_REQUEST, "workspace名称不能为空".to_string()));
+        }
+        new_name = trimmed.to_string();
+    }
+
+    let duplicate = workspaces::Entity::find()
+        .filter(workspaces::Column::OwnerId.eq(user.id))
+        .filter(workspaces::Column::Name.eq(new_name.clone()))
+        .one(&app_state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("查询workspace失败: {}", e)))?;
+    if let Some(dup) = duplicate {
+        if dup.id != workspace_id {
+            return Err((StatusCode::CONFLICT, "该名称已存在".to_string()));
+        }
+    }
+
+    let new_description = match payload.description {
+        Some(desc) => {
+            let trimmed = desc.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        None => existing.description.clone(),
+    };
+
+    let now = chrono::Utc::now();
+    let updated = workspaces::ActiveModel {
+        id: Set(existing.id),
+        owner_id: Set(existing.owner_id),
+        name: Set(new_name),
+        description: Set(new_description),
+        is_public: Set(payload.is_public.unwrap_or(existing.is_public)),
+        created_at: Set(existing.created_at),
+        updated_at: Set(now),
+    }
+    .update(&app_state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("更新workspace失败: {}", e)))?;
+
+    Ok(Json(WorkspaceResponse {
+        id: updated.id,
+        owner_id: updated.owner_id,
+        name: updated.name,
+        description: updated.description,
+        is_public: updated.is_public,
+        created_at: updated.created_at,
+        updated_at: updated.updated_at,
+    }))
+}
+
+async fn delete_workspace_handler(
+    State(app_state): State<AppState>,
+    Path(workspace_id): Path<i32>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let user = authenticate_user(&headers, &app_state.db).await?;
+    let workspace = get_workspace_by_id(&app_state.db, workspace_id).await?;
+    if workspace.owner_id != user.id {
+        return Err((StatusCode::FORBIDDEN, "仅workspace拥有者可删除".to_string()));
+    }
+
+    let workspace_files = files::Entity::find()
+        .filter(files::Column::WorkspaceId.eq(workspace_id))
+        .all(&app_state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("查询文件失败: {}", e)))?;
+
+    for file in workspace_files {
+        if let Err(e) = fs::remove_file(&file.file_path).await {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                warn!("删除workspace文件失败: path={}, err={}", file.file_path, e);
+            }
+        }
+    }
+
+    workspaces::Entity::delete_by_id(workspace_id)
+        .exec(&app_state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("删除workspace失败: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "workspace_id": workspace_id,
+        "deleted": true
+    })))
+}
+
+async fn list_workspaces_handler(
+    State(app_state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<WorkspaceResponse>>, (StatusCode, String)> {
+    let current_user = authenticate_user(&headers, &app_state.db).await.ok();
+
+    let mut rows = workspaces::Entity::find()
+        .filter(workspaces::Column::IsPublic.eq(true))
+        .all(&app_state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("查询workspace失败: {}", e)))?;
+
+    if let Some(user) = current_user {
+        let own_rows = workspaces::Entity::find()
+            .filter(workspaces::Column::OwnerId.eq(user.id))
+            .all(&app_state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("查询workspace失败: {}", e)))?;
+        for item in own_rows {
+            if !rows.iter().any(|r| r.id == item.id) {
+                rows.push(item);
+            }
+        }
+    }
+
+    let resp = rows
+        .into_iter()
+        .map(|w| WorkspaceResponse {
+            id: w.id,
+            owner_id: w.owner_id,
+            name: w.name,
+            description: w.description,
+            is_public: w.is_public,
+            created_at: w.created_at,
+            updated_at: w.updated_at,
+        })
+        .collect();
+    Ok(Json(resp))
+}
+
+async fn upload_to_workspace_handler(
+    State(app_state): State<AppState>,
+    Path(workspace_id): Path<i32>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let user = authenticate_user(&headers, &app_state.db).await?;
+    let workspace = get_workspace_by_id(&app_state.db, workspace_id).await?;
+    if workspace.owner_id != user.id {
+        return Err((StatusCode::FORBIDDEN, "仅workspace拥有者可上传".to_string()));
+    }
+
+    let mut imported = 0i32;
+    let processor = crate::excel_processor_sea::ExcelProcessor::new(app_state.db.clone());
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("读取上传字段失败: {}", e)))?
+    {
+        let file_name = field.file_name().unwrap_or("upload.xlsx").to_string();
+        let file_name_lower = file_name.to_lowercase();
+        if !file_name_lower.ends_with(".xlsx") && !file_name_lower.ends_with(".xls") {
+            continue;
+        }
+
+        let data = field
+            .bytes()
+            .await
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("读取上传文件失败: {}", e)))?;
+        if data.is_empty() {
+            continue;
+        }
+
+        let ext = if file_name_lower.ends_with(".xls") { "xls" } else { "xlsx" };
+        let stored_name = format!("{}_{}.{}", workspace_id, Uuid::new_v4(), ext);
+        let full_path = StdPath::new(&app_state.upload_dir).join(stored_name);
+        fs::write(&full_path, data)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("保存上传文件失败: {}", e)))?;
+
+        let path_str = full_path.to_string_lossy().to_string();
+        processor
+            .import_uploaded_file(workspace_id, &path_str, user.id)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("导入Excel失败: {}", e)))?;
+        imported += 1;
+    }
+
+    Ok(Json(serde_json::json!({
+        "workspace_id": workspace_id,
+        "imported_files": imported
+    })))
+}
+
 
 
 async fn stats_handler(
     State(app_state): State<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<StatsQuery>,
 ) -> Result<Json<StatsResponse>, (StatusCode, String)> {
-    // 首先检查缓存
+    let db = app_state.db.clone();
+    let processor = crate::excel_processor_sea::ExcelProcessor::new(db.clone());
+
+    if let Some(workspace_id) = params.workspace_id {
+        let workspace = get_workspace_by_id(&db, workspace_id).await?;
+        if !workspace.is_public {
+            let user = authenticate_user(&headers, &db).await?;
+            if user.id != workspace.owner_id {
+                return Err((StatusCode::FORBIDDEN, "无权限访问该workspace".to_string()));
+            }
+        }
+        return processor
+            .get_workspace_statistics(workspace_id)
+            .await
+            .map(Json)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("获取统计信息失败: {}", e)));
+    }
+
     {
         let cache = app_state.stats_cache.lock().unwrap();
         if let Some(cached_stats) = cache.get() {
@@ -1120,16 +2178,8 @@ async fn stats_handler(
         }
     }
 
-    // 缓存过期或不存在，重新获取数据
-    debug!("缓存过期，重新获取统计数据");
-    let db = app_state.db;
-    
-    // 使用ExcelProcessor获取统计信息
-    let processor = crate::excel_processor_sea::ExcelProcessor::new(db.clone());
-    
-    match processor.get_statistics().await {
+    match processor.get_public_statistics().await {
         Ok(stats) => {
-            // 更新缓存
             {
                 let mut cache = app_state.stats_cache.lock().unwrap();
                 cache.update(stats.clone());
@@ -1143,9 +2193,10 @@ async fn stats_handler(
 
 async fn search_handler(
     State(app_state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<SearchQuery>,
 ) -> Result<Json<SearchResponse>, (StatusCode, String)> {
-    let db = app_state.db;
+    let db = app_state.db.clone();
     let query_text = params.q.unwrap_or_default();
     let limit = params.limit.unwrap_or(20).max(1).min(100) as u64;
     let offset = params.offset.unwrap_or(0).max(0) as u64;
@@ -1154,36 +2205,59 @@ async fn search_handler(
         return Err((StatusCode::BAD_REQUEST, "查询参数不能为空".to_string()));
     }
     
-    // 使用ExcelProcessor搜索数据
-    let processor = crate::excel_processor_sea::ExcelProcessor::new(db);
-    
-    match processor.search_data(&query_text, limit.try_into().unwrap(), offset.try_into().unwrap()).await {
-        Ok(results) => Ok(Json(results)),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("搜索失败: {}", e))),
+    let processor = crate::excel_processor_sea::ExcelProcessor::new(db.clone());
+
+    if let Some(workspace_id) = params.workspace_id {
+        let workspace = get_workspace_by_id(&db, workspace_id).await?;
+        if !workspace.is_public {
+            let user = authenticate_user(&headers, &db).await?;
+            if user.id != workspace.owner_id {
+                return Err((StatusCode::FORBIDDEN, "无权限访问该workspace".to_string()));
+            }
+        }
+        match processor.search_workspace_data(workspace_id, &query_text, limit, offset).await {
+            Ok(results) => Ok(Json(results)),
+            Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("搜索失败: {}", e))),
+        }
+    } else {
+        match processor.search_public_data(&query_text, limit, offset).await {
+            Ok(results) => Ok(Json(results)),
+            Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("搜索失败: {}", e))),
+        }
     }
 }
 
 async fn export_handler(
     State(app_state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<SearchQuery>,
 ) -> Result<Response<axum::body::Body>, (StatusCode, String)> {
-    let db = app_state.db;
+    let db = app_state.db.clone();
     let query_text = params.q.unwrap_or_default();
     
     if query_text.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "查询参数不能为空".to_string()));
     }
     
-    // 使用ExcelProcessor导出数据
-    let processor = crate::excel_processor_sea::ExcelProcessor::new(db);
-    
-    match processor.export_search_results(&query_text).await {
+    let processor = crate::excel_processor_sea::ExcelProcessor::new(db.clone());
+    let export_result = if let Some(workspace_id) = params.workspace_id {
+        let workspace = get_workspace_by_id(&db, workspace_id).await?;
+        if !workspace.is_public {
+            let user = authenticate_user(&headers, &db).await?;
+            if user.id != workspace.owner_id {
+                return Err((StatusCode::FORBIDDEN, "无权限访问该workspace".to_string()));
+            }
+        }
+        processor.export_workspace_search_results(workspace_id, &query_text).await
+    } else {
+        processor.export_public_search_results(&query_text).await
+    };
+
+    match export_result {
         Ok(excel_data) => {
-            // 生成文件名
             let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
             let filename = format!("搜索结果导出_{}.xlsx", timestamp);
             
-            // 构建响应
             let response = Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

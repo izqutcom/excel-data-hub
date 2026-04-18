@@ -1,9 +1,9 @@
 use crate::models::{ExcelData, ImportStats, SearchResponse, StatsResponse};
-use crate::models::entity::{excel_data, files};
+use crate::models::entity::{excel_data, files, workspaces};
 use calamine::{open_workbook_auto, Reader};
 use md5;
 use rust_xlsxwriter::{Workbook, Format};
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, PaginatorTrait, Set, TransactionTrait};
+use sea_orm::{ActiveModelTrait, ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect, PaginatorTrait, Set, TransactionTrait};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
@@ -122,7 +122,12 @@ impl ExcelProcessor {
     }
 
     /// 获取或创建文件元数据
-    async fn get_or_create_file_metadata(&self, file_path: &str) -> Result<i32, sea_orm::DbErr> {
+    async fn get_or_create_file_metadata(
+        &self,
+        file_path: &str,
+        workspace_id: Option<i32>,
+        uploaded_by: Option<i32>,
+    ) -> Result<i32, sea_orm::DbErr> {
         // 获取文件信息
         let metadata = match fs::metadata(file_path) {
             Ok(meta) => meta,
@@ -144,8 +149,15 @@ impl ExcelProcessor {
         let now = chrono::Utc::now();
 
         // 尝试获取现有的文件元数据
+        let mut file_filter = Condition::all().add(files::Column::FilePath.eq(file_path));
+        file_filter = if let Some(wid) = workspace_id {
+            file_filter.add(files::Column::WorkspaceId.eq(wid))
+        } else {
+            file_filter.add(files::Column::WorkspaceId.is_null())
+        };
+
         let existing_file: Option<files::Model> = files::Entity::find()
-            .filter(files::Column::FilePath.eq(file_path))
+            .filter(file_filter)
             .one(&self.db)
             .await?;
 
@@ -155,6 +167,8 @@ impl ExcelProcessor {
                 let now = chrono::Utc::now();
                 let updated_file = files::ActiveModel {
                     id: Set(file_model.id),
+                    workspace_id: Set(file_model.workspace_id),
+                    uploaded_by: Set(uploaded_by.or(file_model.uploaded_by)),
                     file_path: Set(file_model.file_path.clone()),
                     file_name: Set(file_model.file_name.clone()),
                     file_size: Set(file_size),
@@ -171,6 +185,8 @@ impl ExcelProcessor {
                 // 创建新的文件元数据
                 let new_file = files::ActiveModel {
                     id: Default::default(),
+                    workspace_id: Set(workspace_id),
+                    uploaded_by: Set(uploaded_by),
                     file_path: Set(file_path.to_string()),
                     file_name: Set(file_name),
                     file_size: Set(file_size),
@@ -186,13 +202,24 @@ impl ExcelProcessor {
     }
 
     /// 检查文件是否需要更新（基于哈希值比较）
-    async fn is_file_changed(&self, file_path: &str) -> Result<bool, Box<dyn std::error::Error>> {
+    async fn is_file_changed(
+        &self,
+        file_path: &str,
+        workspace_id: Option<i32>,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
         // 计算当前文件的哈希值
         let current_hash = self.generate_file_hash(file_path).await?;
         
         // 查询数据库中的文件记录
+        let mut file_filter = Condition::all().add(files::Column::FilePath.eq(file_path));
+        file_filter = if let Some(wid) = workspace_id {
+            file_filter.add(files::Column::WorkspaceId.eq(wid))
+        } else {
+            file_filter.add(files::Column::WorkspaceId.is_null())
+        };
+
         let existing_file: Option<files::Model> = files::Entity::find()
-            .filter(files::Column::FilePath.eq(file_path))
+            .filter(file_filter)
             .one(&self.db)
             .await?;
 
@@ -324,7 +351,14 @@ impl ExcelProcessor {
     }
 
     /// 插入Excel数据到数据库
-    async fn insert_excel_data(&self, file_id: i32, file_path: &str, sheet_name: &str, rows_data: Vec<HashMap<String, Value>>) -> Result<bool, sea_orm::DbErr> {
+    async fn insert_excel_data(
+        &self,
+        workspace_id: Option<i32>,
+        file_id: i32,
+        file_path: &str,
+        sheet_name: &str,
+        rows_data: Vec<HashMap<String, Value>>,
+    ) -> Result<bool, sea_orm::DbErr> {
         if rows_data.is_empty() {
             return Ok(true);
         }
@@ -364,6 +398,7 @@ impl ExcelProcessor {
 
             let record = excel_data::ActiveModel {
                 id: Default::default(),
+                workspace_id: Set(workspace_id),
                 file_id: Set(file_id),
                 import_time: Set(now),
                 row_number: Set((index + 1) as i32),
@@ -456,7 +491,7 @@ impl ExcelProcessor {
             let needs_update = if force_reimport {
                 true
             } else {
-                match self.is_file_changed(&file_path).await {
+                match self.is_file_changed(&file_path, None).await {
                     Ok(changed) => changed,
                     Err(e) => {
                         error!("检查文件变化失败 {}: {}", file_path, e);
@@ -497,7 +532,7 @@ impl ExcelProcessor {
                 
                 tasks.spawn(async move {
                     let processor = ExcelProcessor::new(db);
-                    processor.process_single_file(&file_path, force_reimport).await
+                    processor.process_single_file(&file_path, force_reimport, None, None).await
                 });
             }
             
@@ -524,12 +559,18 @@ impl ExcelProcessor {
     }
 
     /// 处理单个文件（用于多线程调用）
-    async fn process_single_file(&self, file_path: &str, force_reimport: bool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn process_single_file(
+        &self,
+        file_path: &str,
+        force_reimport: bool,
+        workspace_id: Option<i32>,
+        uploaded_by: Option<i32>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!("开始处理文件: {}", file_path);
         
         // 如果不是强制重新导入，检查文件是否需要更新
         if !force_reimport {
-            match self.is_file_changed(file_path).await {
+            match self.is_file_changed(file_path, workspace_id).await {
                 Ok(false) => {
                     info!("文件未发生变化，跳过处理: {}", file_path);
                     return Ok(());
@@ -545,7 +586,7 @@ impl ExcelProcessor {
         }
         
         // 获取或创建文件元数据
-        let file_id = match self.get_or_create_file_metadata(file_path).await {
+        let file_id = match self.get_or_create_file_metadata(file_path, workspace_id, uploaded_by).await {
             Ok(id) => {
                 info!("文件元数据处理成功，文件ID: {}", id);
                 id
@@ -581,7 +622,7 @@ impl ExcelProcessor {
 
         // 插入每个工作表的数据
         for (sheet_name, rows_data) in all_sheets_data {
-            match self.insert_excel_data(file_id, file_path, &sheet_name, rows_data).await {
+            match self.insert_excel_data(workspace_id, file_id, file_path, &sheet_name, rows_data).await {
                 Ok(_) => {
                     info!("工作表 {} 数据导入成功", sheet_name);
                 },
@@ -619,73 +660,104 @@ impl ExcelProcessor {
         Ok(())
     }
 
-    /// 搜索数据
-    pub async fn search_data(&self, query_text: &str, limit: u64, offset: u64) -> Result<SearchResponse, sea_orm::DbErr> {
-        use sea_orm::Condition;
-        
-        // 解析多关键词
-        let keywords: Vec<&str> = query_text.trim().split_whitespace().filter(|k| !k.is_empty()).collect();
-        
+    pub async fn import_uploaded_file(
+        &self,
+        workspace_id: i32,
+        file_path: &str,
+        uploaded_by: i32,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.process_single_file(file_path, true, Some(workspace_id), Some(uploaded_by)).await
+    }
+
+    async fn get_public_workspace_ids(&self) -> Result<Vec<i32>, sea_orm::DbErr> {
+        workspaces::Entity::find()
+            .select_only()
+            .column(workspaces::Column::Id)
+            .filter(workspaces::Column::IsPublic.eq(true))
+            .into_tuple::<i32>()
+            .all(&self.db)
+            .await
+    }
+
+    async fn get_scored_results(
+        &self,
+        query_text: &str,
+        workspace_id: Option<i32>,
+        only_public_workspaces: bool,
+    ) -> Result<Vec<((excel_data::Model, Option<files::Model>), i32)>, sea_orm::DbErr> {
+        let keywords: Vec<&str> = query_text
+            .trim()
+            .split_whitespace()
+            .filter(|k| !k.is_empty())
+            .collect();
+
         if keywords.is_empty() {
-            return Ok(SearchResponse {
-                results: vec![],
-                total: 0,
-                limit: limit as i64,
-                offset: offset as i64,
-            });
+            return Ok(vec![]);
         }
 
-        // 构建搜索条件：使用OR条件，任一关键词匹配即可
         let mut condition = Condition::any();
         for keyword in &keywords {
             condition = condition.add(excel_data::Column::SearchText.contains(*keyword));
         }
 
-        // 计算总数
-        let total = excel_data::Entity::find()
-            .filter(condition.clone())
-            .count(&self.db)
-            .await?;
+        if let Some(wid) = workspace_id {
+            condition = Condition::all()
+                .add(condition)
+                .add(excel_data::Column::WorkspaceId.eq(wid));
+        } else if only_public_workspaces {
+            let public_workspace_ids = self.get_public_workspace_ids().await?;
+            if public_workspace_ids.is_empty() {
+                return Ok(vec![]);
+            }
+            condition = Condition::all()
+                .add(condition)
+                .add(excel_data::Column::WorkspaceId.is_in(public_workspace_ids));
+        }
 
-        // 获取所有匹配的结果，包含文件信息
         let all_results: Vec<(excel_data::Model, Option<files::Model>)> = excel_data::Entity::find()
             .find_also_related(files::Entity)
             .filter(condition)
             .all(&self.db)
             .await?;
 
-        // 计算每个结果的相关性评分并排序
         let mut scored_results: Vec<((excel_data::Model, Option<files::Model>), i32)> = all_results
             .into_iter()
             .map(|result| {
                 let search_text = &result.0.search_text;
                 let mut score = 0;
-                
-                // 计算匹配的关键词数量
                 for keyword in &keywords {
                     if search_text.contains(*keyword) {
                         score += 1;
                     }
                 }
-                
-                // 如果包含完整的查询字符串，给予额外分数
                 if search_text.contains(query_text) {
                     score += keywords.len() as i32;
                 }
-                
                 (result, score)
             })
             .collect();
 
-        // 按评分降序排序，评分相同时按导入时间降序排序
-        scored_results.sort_by(|a, b| {
-            match b.1.cmp(&a.1) {
-                std::cmp::Ordering::Equal => b.0.0.import_time.cmp(&a.0.0.import_time),
-                other => other,
-            }
+        scored_results.sort_by(|a, b| match b.1.cmp(&a.1) {
+            std::cmp::Ordering::Equal => b.0.0.import_time.cmp(&a.0.0.import_time),
+            other => other,
         });
 
-        // 应用分页
+        Ok(scored_results)
+    }
+
+    async fn search_with_scope(
+        &self,
+        query_text: &str,
+        limit: u64,
+        offset: u64,
+        workspace_id: Option<i32>,
+        only_public_workspaces: bool,
+    ) -> Result<SearchResponse, sea_orm::DbErr> {
+        let scored_results = self
+            .get_scored_results(query_text, workspace_id, only_public_workspaces)
+            .await?;
+        let total = scored_results.len() as i64;
+
         let paginated_results: Vec<(excel_data::Model, Option<files::Model>)> = scored_results
             .into_iter()
             .skip(offset as usize)
@@ -693,11 +765,11 @@ impl ExcelProcessor {
             .map(|(result, _score)| result)
             .collect();
 
-        // 转换为兼容的ExcelData结构
         let converted_results: Vec<ExcelData> = paginated_results
             .into_iter()
             .map(|(excel_model, file_model)| ExcelData {
                 id: Some(excel_model.id),
+                workspace_id: excel_model.workspace_id,
                 file_id: excel_model.file_id,
                 import_time: excel_model.import_time,
                 row_number: excel_model.row_number,
@@ -711,31 +783,50 @@ impl ExcelProcessor {
 
         Ok(SearchResponse {
             results: converted_results,
-            total: total as i64,
+            total,
             limit: limit as i64,
             offset: offset as i64,
         })
     }
 
-    /// 获取统计信息
-    pub async fn get_statistics(&self) -> Result<StatsResponse, sea_orm::DbErr> {
-        // 获取总记录数
+    pub async fn search_workspace_data(
+        &self,
+        workspace_id: i32,
+        query_text: &str,
+        limit: u64,
+        offset: u64,
+    ) -> Result<SearchResponse, sea_orm::DbErr> {
+        self.search_with_scope(query_text, limit, offset, Some(workspace_id), false)
+            .await
+    }
+
+    pub async fn search_public_data(
+        &self,
+        query_text: &str,
+        limit: u64,
+        offset: u64,
+    ) -> Result<SearchResponse, sea_orm::DbErr> {
+        self.search_with_scope(query_text, limit, offset, None, true).await
+    }
+
+    pub async fn get_workspace_statistics(&self, workspace_id: i32) -> Result<StatsResponse, sea_orm::DbErr> {
         let total_records = excel_data::Entity::find()
+            .filter(excel_data::Column::WorkspaceId.eq(workspace_id))
             .count(&self.db)
             .await?;
 
-        // 获取文件数
         let total_files = files::Entity::find()
+            .filter(files::Column::WorkspaceId.eq(workspace_id))
             .count(&self.db)
             .await?;
 
-        // 获取最新导入时间
         let latest_import_time = excel_data::Entity::find()
+            .filter(excel_data::Column::WorkspaceId.eq(workspace_id))
             .order_by_desc(excel_data::Column::ImportTime)
             .one(&self.db)
             .await?
             .map(|model| model.import_time)
-            .unwrap_or_else(|| chrono::Utc::now());
+            .unwrap_or_else(chrono::Utc::now);
 
         Ok(StatsResponse {
             total_rows: total_records as i64,
@@ -744,68 +835,69 @@ impl ExcelProcessor {
         })
     }
 
-    /// 导出搜索结果到Excel文件
-    pub async fn export_search_results(&self, query_text: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        use sea_orm::Condition;
-        
-        // 解析多关键词
-        let keywords: Vec<&str> = query_text.trim().split_whitespace().filter(|k| !k.is_empty()).collect();
-        
-        if keywords.is_empty() {
-            return Err("搜索关键词不能为空".into());
+    pub async fn get_public_statistics(&self) -> Result<StatsResponse, sea_orm::DbErr> {
+        let public_workspace_ids = self.get_public_workspace_ids().await?;
+        if public_workspace_ids.is_empty() {
+            return Ok(StatsResponse {
+                total_rows: 0,
+                total_files: 0,
+                last_update: chrono::Utc::now(),
+            });
         }
 
-        // 构建搜索条件：使用OR条件，任一关键词匹配即可
-        let mut condition = Condition::any();
-        for keyword in &keywords {
-            condition = condition.add(excel_data::Column::SearchText.contains(*keyword));
-        }
-
-        // 获取所有匹配的数据，包含文件信息
-        let all_results: Vec<(excel_data::Model, Option<files::Model>)> = excel_data::Entity::find()
-            .find_also_related(files::Entity)
-            .filter(condition)
-            .all(&self.db)
+        let total_records = excel_data::Entity::find()
+            .filter(excel_data::Column::WorkspaceId.is_in(public_workspace_ids.clone()))
+            .count(&self.db)
             .await?;
 
-        if all_results.is_empty() {
+        let total_files = files::Entity::find()
+            .filter(files::Column::WorkspaceId.is_in(public_workspace_ids.clone()))
+            .count(&self.db)
+            .await?;
+
+        let latest_import_time = excel_data::Entity::find()
+            .filter(excel_data::Column::WorkspaceId.is_in(public_workspace_ids))
+            .order_by_desc(excel_data::Column::ImportTime)
+            .one(&self.db)
+            .await?
+            .map(|model| model.import_time)
+            .unwrap_or_else(chrono::Utc::now);
+
+        Ok(StatsResponse {
+            total_rows: total_records as i64,
+            total_files: total_files as i64,
+            last_update: latest_import_time,
+        })
+    }
+
+    pub async fn export_workspace_search_results(
+        &self,
+        workspace_id: i32,
+        query_text: &str,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        self.export_search_results_with_scope(query_text, Some(workspace_id), false).await
+    }
+
+    pub async fn export_public_search_results(&self, query_text: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        self.export_search_results_with_scope(query_text, None, true).await
+    }
+
+    async fn export_search_results_with_scope(
+        &self,
+        query_text: &str,
+        workspace_id: Option<i32>,
+        only_public_workspaces: bool,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let scored_results = self
+            .get_scored_results(query_text, workspace_id, only_public_workspaces)
+            .await?;
+
+        if scored_results.is_empty() {
             return Err("没有找到匹配的数据".into());
         }
 
-        // 计算每个结果的相关性评分并排序
-        let mut scored_results: Vec<((excel_data::Model, Option<files::Model>), i32)> = all_results
-            .into_iter()
-            .map(|result| {
-                let search_text = &result.0.search_text;
-                let mut score = 0;
-                
-                // 计算匹配的关键词数量
-                for keyword in &keywords {
-                    if search_text.contains(*keyword) {
-                        score += 1;
-                    }
-                }
-                
-                // 如果包含完整的查询字符串，给予额外分数
-                if search_text.contains(query_text) {
-                    score += keywords.len() as i32;
-                }
-                
-                (result, score)
-            })
-            .collect();
-
-        // 按评分降序排序，评分相同时按导入时间降序排序
-        scored_results.sort_by(|a, b| {
-            match b.1.cmp(&a.1) {
-                std::cmp::Ordering::Equal => b.0.0.import_time.cmp(&a.0.0.import_time),
-                other => other,
-            }
-        });
-
-        // 按文件分组数据
         let mut grouped_data: HashMap<String, Vec<(excel_data::Model, files::Model)>> = HashMap::new();
-        
+
         for ((excel_model, file_model_opt), _score) in scored_results {
             if let Some(file_model) = file_model_opt {
                 let file_name = file_model.file_name.clone();
@@ -813,22 +905,16 @@ impl ExcelProcessor {
             }
         }
 
-        // 创建Excel工作簿
         let mut workbook = Workbook::new();
-        
-        // 创建格式
         let header_format = Format::new()
             .set_bold()
             .set_background_color("#4472C4")
             .set_font_color("#FFFFFF")
             .set_border(rust_xlsxwriter::FormatBorder::Thin);
-            
         let data_format = Format::new()
             .set_border(rust_xlsxwriter::FormatBorder::Thin);
 
-        // 为每个文件创建工作表
         for (file_name, file_data) in grouped_data.iter() {
-            // 清理工作表名称（Excel工作表名称有限制）
             let sheet_name = self.sanitize_sheet_name(file_name);
             let worksheet = workbook.add_worksheet().set_name(&sheet_name)?;
 
@@ -836,11 +922,9 @@ impl ExcelProcessor {
                 continue;
             }
 
-            // 获取所有唯一的列名
             let mut all_columns = std::collections::BTreeSet::new();
             all_columns.insert("行号".to_string());
             all_columns.insert("导入时间".to_string());
-            
             for (excel_model, _) in file_data {
                 if let Ok(data_obj) = serde_json::from_value::<HashMap<String, Value>>(excel_model.data_json.clone()) {
                     for key in data_obj.keys() {
@@ -851,18 +935,14 @@ impl ExcelProcessor {
 
             let columns: Vec<String> = all_columns.into_iter().collect();
 
-            // 写入表头
             for (col_idx, column_name) in columns.iter().enumerate() {
                 worksheet.write_string_with_format(0, col_idx as u16, column_name, &header_format)?;
             }
 
-            // 写入数据
             for (row_idx, (excel_model, _)) in file_data.iter().enumerate() {
                 let row = (row_idx + 1) as u32;
-                
                 for (col_idx, column_name) in columns.iter().enumerate() {
                     let col = col_idx as u16;
-                    
                     let cell_value = match column_name.as_str() {
                         "行号" => excel_model.row_number.to_string(),
                         "导入时间" => excel_model.import_time.format("%Y-%m-%d %H:%M:%S").to_string(),
@@ -881,18 +961,15 @@ impl ExcelProcessor {
                             }
                         }
                     };
-                    
                     worksheet.write_string_with_format(row, col, &cell_value, &data_format)?;
                 }
             }
 
-            // 自动调整列宽
             for col_idx in 0..columns.len() {
                 worksheet.set_column_width(col_idx as u16, 15.0)?;
             }
         }
 
-        // 保存到内存缓冲区
         let buffer = workbook.save_to_buffer()?;
         Ok(buffer)
     }
