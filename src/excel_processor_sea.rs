@@ -93,6 +93,7 @@ impl ExcelProcessor {
         file_path: &str,
         workspace_id: Option<i32>,
         uploaded_by: Option<i32>,
+        original_file_name: Option<&str>,
     ) -> Result<i32, sea_orm::DbErr> {
         // 获取文件信息
         let metadata = match fs::metadata(file_path) {
@@ -106,11 +107,17 @@ impl ExcelProcessor {
             Err(e) => return Err(sea_orm::DbErr::Custom(format!("文件哈希生成失败: {}", e))),
         };
 
-        let file_name = Path::new(file_path)
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
+        let file_name = original_file_name
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| {
+                Path::new(file_path)
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string()
+            });
 
         let now = chrono::Utc::now();
 
@@ -136,7 +143,7 @@ impl ExcelProcessor {
                     workspace_id: Set(file_model.workspace_id),
                     uploaded_by: Set(uploaded_by.or(file_model.uploaded_by)),
                     file_path: Set(file_model.file_path.clone()),
-                    file_name: Set(file_model.file_name.clone()),
+                    file_name: Set(file_name),
                     file_size: Set(file_size),
                     file_hash: Set(file_hash),
                     field_order: Set(file_model.field_order),
@@ -416,6 +423,7 @@ impl ExcelProcessor {
         force_reimport: bool,
         workspace_id: Option<i32>,
         uploaded_by: Option<i32>,
+        original_file_name: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!("开始处理文件: {}", file_path);
         
@@ -437,7 +445,10 @@ impl ExcelProcessor {
         }
         
         // 获取或创建文件元数据
-        let file_id = match self.get_or_create_file_metadata(file_path, workspace_id, uploaded_by).await {
+        let file_id = match self
+            .get_or_create_file_metadata(file_path, workspace_id, uploaded_by, original_file_name)
+            .await
+        {
             Ok(id) => {
                 info!("文件元数据处理成功，文件ID: {}", id);
                 id
@@ -516,8 +527,16 @@ impl ExcelProcessor {
         workspace_id: i32,
         file_path: &str,
         uploaded_by: i32,
+        original_file_name: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.process_single_file(file_path, true, Some(workspace_id), Some(uploaded_by)).await
+        self.process_single_file(
+            file_path,
+            true,
+            Some(workspace_id),
+            Some(uploaded_by),
+            Some(original_file_name),
+        )
+        .await
     }
 
     async fn get_public_workspace_ids(&self) -> Result<Vec<i32>, sea_orm::DbErr> {

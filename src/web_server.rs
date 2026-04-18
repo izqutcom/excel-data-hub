@@ -2323,7 +2323,7 @@ async fn upload_to_workspace_handler(
 
         let path_str = full_path.to_string_lossy().to_string();
         processor
-            .import_uploaded_file(workspace_id, &path_str, user.id)
+            .import_uploaded_file(workspace_id, &path_str, user.id, &file_name)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("导入Excel失败: {}", e)))?;
         imported += 1;
