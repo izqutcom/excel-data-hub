@@ -9,6 +9,7 @@
     "delete": "删除",
     "edit": "编辑",
     "save": "保存",
+    "close": "关闭",
     "cancel": "取消",
     "confirm": "确认",
     "loading": "加载中...",
@@ -58,6 +59,74 @@
   "toolbar": {
     "export": "导出",
     "refresh": "刷新"
+  },
+  "auth": {
+    "register": "注册",
+    "login": "登录",
+    "logout": "退出",
+    "username": "用户名",
+    "password": "密码",
+    "confirm_password": "确认密码",
+    "placeholder_username": "请输入用户名",
+    "placeholder_password": "请输入密码",
+    "placeholder_confirm_password": "请再次输入密码",
+    "modal": {
+      "login_title": "用户登录",
+      "register_title": "注册账号",
+      "submit_login": "登录",
+      "submit_register": "注册并登录"
+    },
+    "errors": {
+      "required": "用户名和密码不能为空",
+      "mismatch": "两次输入的密码不一致"
+    }
+  },
+  "workspace": {
+    "manage": "工作区管理",
+    "public_search_all": "公开工作区总搜索",
+    "create_title": "创建工作区",
+    "edit_title": "编辑工作区",
+    "name": "工作区名称",
+    "name_placeholder": "请输入工作区名称",
+    "description": "描述",
+    "description_placeholder": "可选描述",
+    "is_public": "公开工作区",
+    "save": "保存",
+    "create": "创建",
+    "save_changes": "保存修改",
+    "manager_hint": "可编辑、删除、上传文件到你拥有的工作区",
+    "new_button": "新建工作区",
+    "public": "公开",
+    "private": "私有",
+    "empty_desc": "无描述",
+    "enter": "进入",
+    "upload": "上传",
+    "delete": "删除",
+    "no_workspace": "你还没有工作区，点击右上角“新建工作区”创建。",
+    "not_found": "未找到工作区",
+    "login_required": "请先登录",
+    "select_required": "请先选择一个工作区",
+    "owner_upload_only": "仅工作区拥有者可上传",
+    "delete_confirm": "确认删除此工作区吗？\n工作区内已上传数据会被一并删除且不可恢复。",
+    "delete_failed": "删除失败",
+    "errors": {
+      "name_required": "工作区名称不能为空"
+    }
+  },
+  "upload": {
+    "progress_title": "上传与检索进度",
+    "preparing": "准备上传...",
+    "total_files": "共 {count} 个文件",
+    "uploading_n": "正在上传第 {current}/{total} 个文件",
+    "current_file_remain": "当前文件: {file}，剩余 {remain} 个",
+    "file_uploaded": "文件 {current}/{total} 上传完成",
+    "wait_indexing": "等待服务端检索: {file}",
+    "all_uploaded": "全部文件上传完成",
+    "refreshing": "正在刷新数据...",
+    "in_progress_block": "正在上传处理中，请勿重复操作",
+    "failed": "上传失败",
+    "network_failed": "网络异常，上传失败",
+    "status_code": "状态码"
   },
   "pagination": {
     "page": "第",

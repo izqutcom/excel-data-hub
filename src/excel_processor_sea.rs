@@ -1,4 +1,4 @@
-use crate::models::{ExcelData, ImportStats, SearchResponse, StatsResponse};
+use crate::models::{ExcelData, SearchResponse, StatsResponse};
 use crate::models::entity::{excel_data, files, workspaces};
 use calamine::{open_workbook_auto, Reader};
 use md5;
@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use tracing::{info, error};
-use tokio::task::JoinSet;
 
 pub struct ExcelProcessor {
     db: sea_orm::DatabaseConnection,
@@ -86,39 +85,6 @@ impl ExcelProcessor {
         let content = fs::read(file_path)?;
         let digest = md5::compute(content);
         Ok(format!("{:x}", digest))
-    }
-
-    /// 递归扫描目录中的Excel文件
-    fn scan_excel_files_recursive(&self, dir: &Path, excel_extensions: &[&str]) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let mut excel_files = Vec::new();
-        
-        fn scan_directory(dir: &Path, excel_extensions: &[&str], excel_files: &mut Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
-            let entries = fs::read_dir(dir)?;
-            
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    
-                    if path.is_file() {
-                        // 检查是否是Excel文件
-                        if let Some(extension) = path.extension() {
-                            let ext_str = extension.to_string_lossy().to_lowercase();
-                            if excel_extensions.contains(&ext_str.as_str()) {
-                                let file_path = path.to_string_lossy().to_string();
-                                excel_files.push(file_path);
-                            }
-                        }
-                    } else if path.is_dir() {
-                        // 递归扫描子目录
-                        scan_directory(&path, excel_extensions, excel_files)?;
-                    }
-                }
-            }
-            Ok(())
-        }
-        
-        scan_directory(dir, excel_extensions, &mut excel_files)?;
-        Ok(excel_files)
     }
 
     /// 获取或创建文件元数据
@@ -441,121 +407,6 @@ impl ExcelProcessor {
             info!("文件ID {} 没有数据", file_id);
             Ok(true)
         }
-    }
-
-    /// 批量导入Excel文件（支持增量更新和多线程）
-    pub async fn batch_import_excel_files(&self, folder_path: &str) -> Result<ImportStats, Box<dyn std::error::Error>> {
-        self.batch_import_excel_files_with_options(folder_path, false, 4).await
-    }
-
-    /// 批量导入Excel文件（带选项和多线程支持）
-    pub async fn batch_import_excel_files_with_options(&self, folder_path: &str, force_reimport: bool, max_concurrent_files: usize) -> Result<ImportStats, Box<dyn std::error::Error>> {
-        let mut stats = ImportStats {
-            success: 0,
-            failed: 0,
-            total: 0,
-            skipped: 0,
-        };
-
-        let path = Path::new(folder_path);
-        if !path.exists() {
-            return Err(format!("文件夹不存在: {}", folder_path).into());
-        }
-
-        if !path.is_dir() {
-            return Err(format!("路径不是文件夹: {}", folder_path).into());
-        }
-
-        let mut files_to_process = Vec::new();
-        let excel_extensions = ["xlsx", "xls"];
-        
-        let mut all_files_count = 0;
-        let mut processed_files_count = 0;
-        let mut excel_files_count = 0;
-
-        // 递归扫描Excel文件
-        let excel_files = self.scan_excel_files_recursive(path, &excel_extensions)?;
-        
-        for file_path in excel_files {
-            all_files_count += 1;
-            processed_files_count += 1;
-            
-            let file_name = Path::new(&file_path)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or("未知文件名".to_string());
-            
-            info!("找到Excel文件: {}", file_name);
-            
-            // 检查文件是否需要更新（除非强制重新导入）
-            let needs_update = if force_reimport {
-                true
-            } else {
-                match self.is_file_changed(&file_path, None).await {
-                    Ok(changed) => changed,
-                    Err(e) => {
-                        error!("检查文件变化失败 {}: {}", file_path, e);
-                        true // 出错时默认需要更新
-                    }
-                }
-            };
-
-            if needs_update {
-                files_to_process.push(file_path);
-                stats.total += 1;
-                excel_files_count += 1;
-                info!("需要处理的Excel文件: {}", file_name);
-            } else {
-                stats.skipped += 1;
-                info!("跳过未变化的Excel文件: {}", file_name);
-            }
-        }
-        
-        info!("扫描完成 - 总文件数: {}, 处理文件数: {}, Excel文件数: {}, 需要更新: {}, 跳过: {}", 
-              all_files_count, processed_files_count, excel_files_count, files_to_process.len(), stats.skipped);
-
-        if files_to_process.is_empty() {
-            info!("没有需要处理的文件");
-            return Ok(stats);
-        }
-
-        // 使用多线程并行处理文件，并发数量可配置
-        let chunk_size = std::cmp::max(1, max_concurrent_files); // 确保至少为1
-        info!("使用并发处理，每批最多处理 {} 个文件", chunk_size);
-        
-        for chunk in files_to_process.chunks(chunk_size) {
-            let mut tasks: JoinSet<Result<(), Box<dyn std::error::Error + Send + Sync>>> = JoinSet::new();
-            
-            for file_path in chunk {
-                let file_path = file_path.clone();
-                let db = self.db.clone();
-                
-                tasks.spawn(async move {
-                    let processor = ExcelProcessor::new(db);
-                    processor.process_single_file(&file_path, force_reimport, None, None).await
-                });
-            }
-            
-            // 等待当前批次的所有任务完成
-            while let Some(result) = tasks.join_next().await {
-                match result {
-                    Ok(Ok(())) => {
-                        stats.success += 1;
-                    },
-                    Ok(Err(e)) => {
-                        error!("文件处理失败: {}", e);
-                        stats.failed += 1;
-                    },
-                    Err(e) => {
-                        error!("任务执行失败: {}", e);
-                        stats.failed += 1;
-                    }
-                }
-            }
-        }
-
-        info!("批量导入完成 - 成功: {}, 失败: {}, 总计: {}, 跳过: {}", stats.success, stats.failed, stats.total, stats.skipped);
-        Ok(stats)
     }
 
     /// 处理单个文件（用于多线程调用）

@@ -58,14 +58,6 @@ pub struct WorkspaceResponse {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImportStats {
-    pub success: i64,
-    pub failed: i64,
-    pub total: i64,
-    pub skipped: i64,
-}
-
 /// 语言响应
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LanguageResponse {

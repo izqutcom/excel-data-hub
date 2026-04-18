@@ -9,6 +9,7 @@
     "delete": "حذف",
     "edit": "تحرير",
     "save": "حفظ",
+    "close": "إغلاق",
     "cancel": "إلغاء",
     "confirm": "تأكيد",
     "loading": "جاري التحميل...",
@@ -58,6 +59,74 @@
   "toolbar": {
     "export": "تصدير",
     "refresh": "تحديث"
+  },
+  "auth": {
+    "register": "تسجيل",
+    "login": "دخول",
+    "logout": "خروج",
+    "username": "اسم المستخدم",
+    "password": "كلمة المرور",
+    "confirm_password": "تأكيد كلمة المرور",
+    "placeholder_username": "أدخل اسم المستخدم",
+    "placeholder_password": "أدخل كلمة المرور",
+    "placeholder_confirm_password": "أعد إدخال كلمة المرور",
+    "modal": {
+      "login_title": "تسجيل الدخول",
+      "register_title": "إنشاء حساب",
+      "submit_login": "دخول",
+      "submit_register": "تسجيل والدخول"
+    },
+    "errors": {
+      "required": "اسم المستخدم وكلمة المرور مطلوبان",
+      "mismatch": "كلمتا المرور غير متطابقتين"
+    }
+  },
+  "workspace": {
+    "manage": "إدارة مساحات العمل",
+    "public_search_all": "بحث جميع المساحات العامة",
+    "create_title": "إنشاء مساحة عمل",
+    "edit_title": "تعديل مساحة العمل",
+    "name": "اسم مساحة العمل",
+    "name_placeholder": "أدخل اسم مساحة العمل",
+    "description": "الوصف",
+    "description_placeholder": "وصف اختياري",
+    "is_public": "مساحة عمل عامة",
+    "save": "حفظ",
+    "create": "إنشاء",
+    "save_changes": "حفظ التعديلات",
+    "manager_hint": "تعديل وحذف ورفع الملفات إلى مساحات العمل التي تملكها",
+    "new_button": "مساحة جديدة",
+    "public": "عام",
+    "private": "خاص",
+    "empty_desc": "بدون وصف",
+    "enter": "دخول",
+    "upload": "رفع",
+    "delete": "حذف",
+    "no_workspace": "لا توجد لديك مساحات عمل بعد. انقر \"مساحة جديدة\" للإنشاء.",
+    "not_found": "مساحة العمل غير موجودة",
+    "login_required": "يرجى تسجيل الدخول أولاً",
+    "select_required": "يرجى اختيار مساحة عمل أولاً",
+    "owner_upload_only": "فقط مالك مساحة العمل يمكنه الرفع",
+    "delete_confirm": "هل تريد حذف مساحة العمل هذه؟\nسيتم حذف البيانات المرفوعة فيها أيضاً ولا يمكن استعادتها.",
+    "delete_failed": "فشل الحذف",
+    "errors": {
+      "name_required": "اسم مساحة العمل لا يمكن أن يكون فارغاً"
+    }
+  },
+  "upload": {
+    "progress_title": "تقدم الرفع والفهرسة",
+    "preparing": "جارٍ التحضير للرفع...",
+    "total_files": "إجمالي الملفات: {count}",
+    "uploading_n": "جارٍ رفع الملف {current}/{total}",
+    "current_file_remain": "الملف الحالي: {file}، المتبقي {remain}",
+    "file_uploaded": "تم رفع الملف {current}/{total}",
+    "wait_indexing": "بانتظار فهرسة الخادم: {file}",
+    "all_uploaded": "تم رفع جميع الملفات",
+    "refreshing": "جارٍ تحديث البيانات...",
+    "in_progress_block": "الرفع جارٍ، يرجى عدم التكرار",
+    "failed": "فشل الرفع",
+    "network_failed": "خطأ شبكة، فشل الرفع",
+    "status_code": "رمز الحالة"
   },
   "pagination": {
     "page": "الصفحة",

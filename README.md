@@ -20,7 +20,7 @@
 ## ✨ 功能特性
 
 ### 📈 核心功能
-- **Excel 文件处理**: 支持 `.xlsx` 和 `.xls` 格式的 Excel 文件批量导入
+- **Excel 文件处理**: 支持 `.xlsx` 和 `.xls` 格式的 Excel 文件上传导入（按 workspace）
 - **全文搜索**: 基于 PostgreSQL 的高性能全文搜索，支持多关键词匹配
 - **数据导出**: 支持搜索结果导出为 Excel 格式
 - **实时统计**: 提供文件数量、记录总数等实时统计信息
@@ -103,8 +103,8 @@ cp .env.example .env
 # 数据库连接
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/excel
 
-# Excel 文件路径
-EXCEL_FOLDER_PATH=./excel_files
+# 上传目录
+UPLOAD_DIR=./uploads
 
 # 服务器配置
 PORT=8000
@@ -116,18 +116,12 @@ DEFAULT_LANGUAGE=zh
 SUPPORTED_LANGUAGES=zh,en,ar,ug
 ```
 
-5. **创建 Excel 文件目录**
-```bash
-mkdir excel_files
-# 将你的 Excel 文件放入此目录
-```
-
-6. **运行项目**
+5. **运行项目**
 ```bash
 cargo run
 ```
 
-7. **访问应用**
+6. **访问应用**
 
 打开浏览器访问: http://localhost:8000
 
@@ -135,10 +129,10 @@ cargo run
 
 ### Excel 文件导入
 
-1. 将 Excel 文件放入配置的 `EXCEL_FOLDER_PATH` 目录
-2. 启动程序，系统会自动扫描并导入文件
-3. 支持的文件格式：`.xlsx`, `.xls`
-4. 系统会自动检测文件变化，避免重复导入
+1. 登录系统并创建工作区（workspace）
+2. 在“工作区管理”中上传 Excel 文件
+3. 系统按工作区导入并建立搜索索引
+4. 支持的文件格式：`.xlsx`, `.xls`
 
 ### 搜索功能
 
@@ -219,11 +213,9 @@ GET /api/export?q=关键词
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
 | `DATABASE_URL` | PostgreSQL 连接字符串 | - |
-| `EXCEL_FOLDER_PATH` | Excel 文件存储路径 | `./excel_files` |
+| `UPLOAD_DIR` | 上传文件存储路径 | `./uploads` |
 | `PORT` | Web 服务器端口 | `8000` |
 | `RUST_LOG` | 日志级别 | `info` |
-| `FORCE_REIMPORT` | 是否强制重新导入 | `false` |
-| `MAX_CONCURRENT_FILES` | 并发处理文件数 | `4` |
 | `ENABLE_MULTILINGUAL` | 启用多语言支持 | `true` |
 | `DEFAULT_LANGUAGE` | 默认语言 | `zh` |
 | `SUPPORTED_LANGUAGES` | 支持的语言列表 | `zh,en,ar,ug` |

@@ -8,7 +8,7 @@ use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::{StatusCode, header, HeaderMap},
     response::{Html, Response},
-    routing::{delete, get, post, put},
+    routing::{get, post, put},
     Json, Router,
 };
 use tower_http::services::ServeDir;
@@ -494,10 +494,10 @@ async fn home_handler() -> Html<&'static str> {
                     </div>
                     <div class="h-6 w-px bg-gray-300"></div>
                     <div class="flex items-center space-x-2">
-                        <button id="registerBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="showRegister()">注册</button>
-                        <button id="loginBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="showLogin()">登录</button>
-                        <button id="manageWorkspaceBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="openWorkspaceManager()" style="display:none;">工作区管理</button>
-                        <button id="logoutBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="logout()" style="display:none;">退出</button>
+                        <button id="registerBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="showRegister()" data-i18n="auth.register">注册</button>
+                        <button id="loginBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="showLogin()" data-i18n="auth.login">登录</button>
+                        <button id="manageWorkspaceBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="openWorkspaceManager()" style="display:none;" data-i18n="workspace.manage">工作区管理</button>
+                        <button id="logoutBtn" class="excel-button px-3 py-1 rounded text-sm" onclick="logout()" style="display:none;" data-i18n="auth.logout">退出</button>
                     </div>
                     <!-- Language Switcher -->
                     <div class="language-switcher">
@@ -523,7 +523,7 @@ async fn home_handler() -> Html<&'static str> {
                 <div class="flex items-center space-x-4 mb-3">
                     <div id="workspaceControls" style="display:none;">
                         <select id="workspaceSelect" class="excel-search-bar px-3 py-2 text-sm min-w-40" onchange="onWorkspaceChange()">
-                            <option value="">公开工作区总搜索</option>
+                            <option value="" data-i18n="workspace.public_search_all">公开工作区总搜索</option>
                         </select>
                     </div>
                     <div class="flex-1 relative">
@@ -614,24 +614,24 @@ async fn home_handler() -> Html<&'static str> {
         <div class="app-modal">
             <div class="app-modal-header">
                 <span id="authModalTitle">登录</span>
-                <button class="excel-button px-2 py-1 rounded text-sm" onclick="closeAuthModal()">关闭</button>
+                <button class="excel-button px-2 py-1 rounded text-sm" onclick="closeAuthModal()" data-i18n="common.close">关闭</button>
             </div>
             <div class="app-modal-body">
-                <label class="app-form-label" for="authUsernameInput">用户名</label>
-                <input id="authUsernameInput" class="app-form-input" type="text" placeholder="请输入用户名">
+                <label class="app-form-label" for="authUsernameInput" data-i18n="auth.username">用户名</label>
+                <input id="authUsernameInput" class="app-form-input" type="text" data-i18n-placeholder="auth.placeholder_username" placeholder="请输入用户名">
                 <div style="height:12px;"></div>
-                <label class="app-form-label" for="authPasswordInput">密码</label>
-                <input id="authPasswordInput" class="app-form-input" type="password" placeholder="请输入密码">
+                <label class="app-form-label" for="authPasswordInput" data-i18n="auth.password">密码</label>
+                <input id="authPasswordInput" class="app-form-input" type="password" data-i18n-placeholder="auth.placeholder_password" placeholder="请输入密码">
                 <div id="authConfirmPasswordWrap" style="display:none;">
                     <div style="height:12px;"></div>
-                    <label class="app-form-label" for="authConfirmPasswordInput">确认密码</label>
-                    <input id="authConfirmPasswordInput" class="app-form-input" type="password" placeholder="请再次输入密码">
+                    <label class="app-form-label" for="authConfirmPasswordInput" data-i18n="auth.confirm_password">确认密码</label>
+                    <input id="authConfirmPasswordInput" class="app-form-input" type="password" data-i18n-placeholder="auth.placeholder_confirm_password" placeholder="请再次输入密码">
                 </div>
                 <div style="height:10px;"></div>
                 <div id="authModalError" class="text-sm text-red-600"></div>
             </div>
             <div class="app-modal-footer">
-                <button class="excel-button px-3 py-2 rounded text-sm" onclick="closeAuthModal()">取消</button>
+                <button class="excel-button px-3 py-2 rounded text-sm" onclick="closeAuthModal()" data-i18n="common.cancel">取消</button>
                 <button id="authSubmitBtn" class="excel-button px-3 py-2 rounded text-sm" onclick="submitAuthForm()">提交</button>
             </div>
         </div>
@@ -641,23 +641,23 @@ async fn home_handler() -> Html<&'static str> {
         <div class="app-modal">
             <div class="app-modal-header">
                 <span id="workspaceFormTitle">创建工作区</span>
-                <button class="excel-button px-2 py-1 rounded text-sm" onclick="closeWorkspaceForm()">关闭</button>
+                <button class="excel-button px-2 py-1 rounded text-sm" onclick="closeWorkspaceForm()" data-i18n="common.close">关闭</button>
             </div>
             <div class="app-modal-body">
-                <label class="app-form-label" for="workspaceNameInput">工作区名称</label>
-                <input id="workspaceNameInput" class="app-form-input" type="text" placeholder="请输入工作区名称">
+                <label class="app-form-label" for="workspaceNameInput" data-i18n="workspace.name">工作区名称</label>
+                <input id="workspaceNameInput" class="app-form-input" type="text" data-i18n-placeholder="workspace.name_placeholder" placeholder="请输入工作区名称">
                 <div style="height:12px;"></div>
-                <label class="app-form-label" for="workspaceDescInput">描述</label>
-                <input id="workspaceDescInput" class="app-form-input" type="text" placeholder="可选描述">
+                <label class="app-form-label" for="workspaceDescInput" data-i18n="workspace.description">描述</label>
+                <input id="workspaceDescInput" class="app-form-input" type="text" data-i18n-placeholder="workspace.description_placeholder" placeholder="可选描述">
                 <div style="height:12px;"></div>
                 <label class="app-form-label">
                     <input id="workspacePublicInput" type="checkbox">
-                    公开工作区
+                    <span data-i18n="workspace.is_public">公开工作区</span>
                 </label>
                 <div id="workspaceFormError" class="text-sm text-red-600"></div>
             </div>
             <div class="app-modal-footer">
-                <button class="excel-button px-3 py-2 rounded text-sm" onclick="closeWorkspaceForm()">取消</button>
+                <button class="excel-button px-3 py-2 rounded text-sm" onclick="closeWorkspaceForm()" data-i18n="common.cancel">取消</button>
                 <button id="workspaceSubmitBtn" class="excel-button px-3 py-2 rounded text-sm" onclick="submitWorkspaceForm()">保存</button>
             </div>
         </div>
@@ -666,13 +666,13 @@ async fn home_handler() -> Html<&'static str> {
     <div id="workspaceManagerBackdrop" class="app-modal-backdrop">
         <div class="app-modal" style="max-width: 760px;">
             <div class="app-modal-header">
-                <span>工作区管理</span>
-                <button class="excel-button px-2 py-1 rounded text-sm" onclick="closeWorkspaceManager()">关闭</button>
+                <span data-i18n="workspace.manage">工作区管理</span>
+                <button class="excel-button px-2 py-1 rounded text-sm" onclick="closeWorkspaceManager()" data-i18n="common.close">关闭</button>
             </div>
             <div class="app-modal-body">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                    <span class="text-sm text-gray-600">可编辑、删除、上传文件到你拥有的工作区</span>
-                    <button class="excel-button px-3 py-2 rounded text-sm" onclick="openWorkspaceForm('create')">新建工作区</button>
+                    <span class="text-sm text-gray-600" data-i18n="workspace.manager_hint">可编辑、删除、上传文件到你拥有的工作区</span>
+                    <button class="excel-button px-3 py-2 rounded text-sm" onclick="openWorkspaceForm('create')" data-i18n="workspace.new_button">新建工作区</button>
                 </div>
                 <div id="workspaceManagerList"></div>
             </div>
@@ -682,10 +682,10 @@ async fn home_handler() -> Html<&'static str> {
     <div id="uploadProgressBackdrop" class="app-modal-backdrop" style="z-index:1400;">
         <div class="app-modal" style="max-width: 520px;">
             <div class="app-modal-header">
-                <span>上传与检索进度</span>
+                <span data-i18n="upload.progress_title">上传与检索进度</span>
             </div>
             <div class="app-modal-body">
-                <div id="uploadProgressText" class="text-sm text-gray-700">准备上传...</div>
+                <div id="uploadProgressText" class="text-sm text-gray-700" data-i18n="upload.preparing">准备上传...</div>
                 <div id="uploadProgressDetail" class="text-xs text-gray-500 mt-1"></div>
                 <div style="height:10px;"></div>
                 <div id="uploadProgressTrack" class="upload-progress-track">
@@ -720,6 +720,12 @@ async fn home_handler() -> Html<&'static str> {
         let uploadWorkspaceId = null;
         let uploadInProgress = false;
 
+        function t(key, fallback, params = {}) {
+            if (!window.i18n) return fallback;
+            const translated = window.i18n.translate(key, params);
+            return translated === key ? fallback : translated;
+        }
+
         // 页面加载完成后初始化
         document.addEventListener('DOMContentLoaded', async function() {
             // 等待i18n系统初始化完成
@@ -730,11 +736,17 @@ async fn home_handler() -> Html<&'static str> {
             document.addEventListener('languageChanged', function(event) {
                 console.log('Language changed to:', event.detail.language);
                 loadStats(); // 重新加载统计信息以应用新语言
+                renderWorkspaceOptions();
+                renderWorkspaceManagerList();
+                updateAuthModalTexts();
+                updateWorkspaceFormTexts();
             });
 
             restoreUserFromStorage();
             updateAuthUI();
             await loadWorkspaces();
+            updateAuthModalTexts();
+            updateWorkspaceFormTexts();
             loadStats();
             document.getElementById('searchInput').focus();
         });
@@ -797,10 +809,22 @@ async fn home_handler() -> Html<&'static str> {
             refreshUploadButtonState();
         }
 
+        function updateAuthModalTexts() {
+            const title = document.getElementById('authModalTitle');
+            const submit = document.getElementById('authSubmitBtn');
+            if (!title || !submit) return;
+            if (authModalMode === 'register') {
+                title.textContent = t('auth.modal.register_title', '注册账号');
+                submit.textContent = t('auth.modal.submit_register', '注册并登录');
+            } else {
+                title.textContent = t('auth.modal.login_title', '用户登录');
+                submit.textContent = t('auth.modal.submit_login', '登录');
+            }
+        }
+
         function showRegister() {
             authModalMode = 'register';
-            document.getElementById('authModalTitle').textContent = '注册账号';
-            document.getElementById('authSubmitBtn').textContent = '注册并登录';
+            updateAuthModalTexts();
             document.getElementById('authModalError').textContent = '';
             document.getElementById('authUsernameInput').value = '';
             document.getElementById('authPasswordInput').value = '';
@@ -811,8 +835,7 @@ async fn home_handler() -> Html<&'static str> {
 
         function showLogin() {
             authModalMode = 'login';
-            document.getElementById('authModalTitle').textContent = '用户登录';
-            document.getElementById('authSubmitBtn').textContent = '登录';
+            updateAuthModalTexts();
             document.getElementById('authModalError').textContent = '';
             document.getElementById('authUsernameInput').value = '';
             document.getElementById('authPasswordInput').value = '';
@@ -833,11 +856,11 @@ async fn home_handler() -> Html<&'static str> {
             errorEl.textContent = '';
 
             if (!username || !password) {
-                errorEl.textContent = '用户名和密码不能为空';
+                errorEl.textContent = t('auth.errors.required', '用户名和密码不能为空');
                 return;
             }
             if (authModalMode === 'register' && password !== confirmPassword) {
-                errorEl.textContent = '两次输入的密码不一致';
+                errorEl.textContent = t('auth.errors.mismatch', '两次输入的密码不一致');
                 return;
             }
 
@@ -894,11 +917,12 @@ async fn home_handler() -> Html<&'static str> {
             const select = document.getElementById('workspaceSelect');
             const previous = currentWorkspaceId ? String(currentWorkspaceId) : '';
             const remembered = localStorage.getItem(WORKSPACE_STORAGE_KEY) || '';
-            select.innerHTML = '<option value="">公开工作区总搜索</option>';
+            select.innerHTML = `<option value="">${t('workspace.public_search_all', '公开工作区总搜索')}</option>`;
             workspaceList.forEach((ws) => {
                 const opt = document.createElement('option');
                 opt.value = String(ws.id);
-                opt.textContent = `${ws.is_public ? '公开' : '私有'} | ${ws.name}`;
+                const visibilityText = ws.is_public ? t('workspace.public', '公开') : t('workspace.private', '私有');
+                opt.textContent = `${visibilityText} | ${ws.name}`;
                 select.appendChild(opt);
             });
 
@@ -958,10 +982,23 @@ async fn home_handler() -> Html<&'static str> {
 
         function createWorkspace() {
             if (!currentToken) {
-                alert('请先登录');
+                alert(t('workspace.login_required', '请先登录'));
                 return;
             }
             openWorkspaceForm('create');
+        }
+
+        function updateWorkspaceFormTexts() {
+            const title = document.getElementById('workspaceFormTitle');
+            const submit = document.getElementById('workspaceSubmitBtn');
+            if (!title || !submit) return;
+            if (workspaceFormMode === 'edit') {
+                title.textContent = t('workspace.edit_title', '编辑工作区');
+                submit.textContent = t('workspace.save_changes', '保存修改');
+            } else {
+                title.textContent = t('workspace.create_title', '创建工作区');
+                submit.textContent = t('workspace.create', '创建');
+            }
         }
 
         function openWorkspaceForm(mode, workspaceId = null) {
@@ -978,17 +1015,17 @@ async fn home_handler() -> Html<&'static str> {
             if (mode === 'edit' && workspaceId) {
                 const ws = workspaceList.find(w => w.id === workspaceId);
                 if (!ws) {
-                    alert('未找到工作区');
+                    alert(t('workspace.not_found', '未找到工作区'));
                     return;
                 }
-                title.textContent = '编辑工作区';
-                submitBtn.textContent = '保存修改';
+                workspaceFormMode = 'edit';
+                updateWorkspaceFormTexts();
                 nameEl.value = ws.name || '';
                 descEl.value = ws.description || '';
                 publicEl.checked = !!ws.is_public;
             } else {
-                title.textContent = '创建工作区';
-                submitBtn.textContent = '创建';
+                workspaceFormMode = 'create';
+                updateWorkspaceFormTexts();
                 nameEl.value = '';
                 descEl.value = '';
                 publicEl.checked = false;
@@ -1003,7 +1040,7 @@ async fn home_handler() -> Html<&'static str> {
 
         async function submitWorkspaceForm() {
             if (!currentToken) {
-                alert('请先登录');
+                alert(t('workspace.login_required', '请先登录'));
                 return;
             }
             const name = document.getElementById('workspaceNameInput').value.trim();
@@ -1013,7 +1050,7 @@ async fn home_handler() -> Html<&'static str> {
             errorEl.textContent = '';
 
             if (!name) {
-                errorEl.textContent = '工作区名称不能为空';
+                errorEl.textContent = t('workspace.errors.name_required', '工作区名称不能为空');
                 return;
             }
 
@@ -1049,16 +1086,16 @@ async fn home_handler() -> Html<&'static str> {
 
         function triggerUpload() {
             if (uploadInProgress) {
-                alert('正在上传处理中，请勿重复操作');
+                alert(t('upload.in_progress_block', '正在上传处理中，请勿重复操作'));
                 return;
             }
             const ws = getSelectedWorkspace();
             if (!ws) {
-                alert('请先选择一个工作区');
+                alert(t('workspace.select_required', '请先选择一个工作区'));
                 return;
             }
             if (!currentToken || !currentUser || ws.owner_id !== currentUser.id) {
-                alert('仅工作区拥有者可上传');
+                alert(t('workspace.owner_upload_only', '仅工作区拥有者可上传'));
                 return;
             }
             uploadWorkspaceId = ws.id;
@@ -1067,7 +1104,7 @@ async fn home_handler() -> Html<&'static str> {
 
         function openWorkspaceManager() {
             if (!currentToken) {
-                alert('请先登录');
+                alert(t('workspace.login_required', '请先登录'));
                 return;
             }
             renderWorkspaceManagerList();
@@ -1082,13 +1119,13 @@ async fn home_handler() -> Html<&'static str> {
             const listEl = document.getElementById('workspaceManagerList');
             if (!listEl) return;
             if (!currentUser) {
-                listEl.innerHTML = '<div class="text-sm text-gray-500">请先登录。</div>';
+                listEl.innerHTML = `<div class="text-sm text-gray-500">${t('workspace.login_required', '请先登录')}</div>`;
                 return;
             }
 
             const ownWorkspaces = workspaceList.filter(w => w.owner_id === currentUser.id);
             if (ownWorkspaces.length === 0) {
-                listEl.innerHTML = '<div class="text-sm text-gray-500">你还没有工作区，点击右上角“新建工作区”创建。</div>';
+                listEl.innerHTML = `<div class="text-sm text-gray-500">${t('workspace.no_workspace', '你还没有工作区，点击右上角“新建工作区”创建。')}</div>`;
                 return;
             }
 
@@ -1096,14 +1133,14 @@ async fn home_handler() -> Html<&'static str> {
                 <div class="workspace-row">
                     <div>
                         <div class="text-sm font-semibold text-gray-800">${ws.name}</div>
-                        <div class="text-xs text-gray-500 mt-1">${ws.description || '无描述'}</div>
-                        <div class="text-xs mt-1 ${ws.is_public ? 'text-green-600' : 'text-gray-500'}">${ws.is_public ? '公开' : '私有'}</div>
+                        <div class="text-xs text-gray-500 mt-1">${ws.description || t('workspace.empty_desc', '无描述')}</div>
+                        <div class="text-xs mt-1 ${ws.is_public ? 'text-green-600' : 'text-gray-500'}">${ws.is_public ? t('workspace.public', '公开') : t('workspace.private', '私有')}</div>
                     </div>
                     <div class="flex items-center space-x-2">
-                        <button class="excel-button px-2 py-1 rounded text-sm" onclick="selectWorkspaceFromManager(${ws.id})">进入</button>
-                        <button class="excel-button px-2 py-1 rounded text-sm" onclick="openWorkspaceForm('edit', ${ws.id})">编辑</button>
-                        <button class="excel-button px-2 py-1 rounded text-sm" onclick="openUploadForWorkspace(${ws.id})">上传</button>
-                        <button class="excel-button px-2 py-1 rounded text-sm text-red-600" onclick="deleteWorkspace(${ws.id})">删除</button>
+                        <button class="excel-button px-2 py-1 rounded text-sm" onclick="selectWorkspaceFromManager(${ws.id})">${t('workspace.enter', '进入')}</button>
+                        <button class="excel-button px-2 py-1 rounded text-sm" onclick="openWorkspaceForm('edit', ${ws.id})">${t('workspace.edit', '编辑')}</button>
+                        <button class="excel-button px-2 py-1 rounded text-sm" onclick="openUploadForWorkspace(${ws.id})">${t('workspace.upload', '上传')}</button>
+                        <button class="excel-button px-2 py-1 rounded text-sm text-red-600" onclick="deleteWorkspace(${ws.id})">${t('workspace.delete', '删除')}</button>
                     </div>
                 </div>
             `).join('');
@@ -1118,7 +1155,7 @@ async fn home_handler() -> Html<&'static str> {
 
         function openUploadForWorkspace(workspaceId) {
             if (uploadInProgress) {
-                alert('正在上传处理中，请勿重复操作');
+                alert(t('upload.in_progress_block', '正在上传处理中，请勿重复操作'));
                 return;
             }
             uploadWorkspaceId = workspaceId;
@@ -1126,7 +1163,7 @@ async fn home_handler() -> Html<&'static str> {
         }
 
         async function deleteWorkspace(workspaceId) {
-            if (!confirm('确认删除此工作区吗？\n工作区内已上传数据会被一并删除且不可恢复。')) {
+            if (!confirm(t('workspace.delete_confirm', '确认删除此工作区吗？\n工作区内已上传数据会被一并删除且不可恢复。'))) {
                 return;
             }
             try {
@@ -1149,7 +1186,7 @@ async fn home_handler() -> Html<&'static str> {
                     search(currentQuery, currentPage);
                 }
             } catch (e) {
-                alert(`删除失败: ${e.message}`);
+                alert(`${t('workspace.delete_failed', '删除失败')}: ${e.message}`);
             }
         }
 
@@ -1194,8 +1231,8 @@ async fn home_handler() -> Html<&'static str> {
                     const remain = totalFiles - fileIndex;
                     setUploadProgress(
                         overallPercent,
-                        `正在上传第 ${fileIndex}/${totalFiles} 个文件`,
-                        `当前文件: ${file.name}，剩余 ${remain} 个`
+                        t('upload.uploading_n', '正在上传第 {current}/{total} 个文件', { current: fileIndex, total: totalFiles }),
+                        t('upload.current_file_remain', '当前文件: {file}，剩余 {remain} 个', { file: file.name, remain })
                     );
                 };
 
@@ -1204,11 +1241,11 @@ async fn home_handler() -> Html<&'static str> {
                     if (xhr.status >= 200 && xhr.status < 300) {
                         resolve(xhr.responseText);
                     } else {
-                        reject(new Error(xhr.responseText || `上传失败，状态码 ${xhr.status}`));
+                        reject(new Error(xhr.responseText || `${t('upload.failed', '上传失败')}，${t('upload.status_code', '状态码')} ${xhr.status}`));
                     }
                 };
                 xhr.onerror = function() {
-                    reject(new Error('网络异常，上传失败'));
+                    reject(new Error(t('upload.network_failed', '网络异常，上传失败')));
                 };
 
                 xhr.send(formData);
@@ -1221,13 +1258,13 @@ async fn home_handler() -> Html<&'static str> {
             const input = document.getElementById('uploadInput');
             if (!ws || !input.files || input.files.length === 0) return;
             if (uploadInProgress) {
-                alert('正在上传处理中，请勿重复操作');
+                alert(t('upload.in_progress_block', '正在上传处理中，请勿重复操作'));
                 input.value = '';
                 uploadWorkspaceId = null;
                 return;
             }
             if (!currentUser || ws.owner_id !== currentUser.id) {
-                alert('仅工作区拥有者可上传');
+                alert(t('workspace.owner_upload_only', '仅工作区拥有者可上传'));
                 input.value = '';
                 uploadWorkspaceId = null;
                 return;
@@ -1235,16 +1272,21 @@ async fn home_handler() -> Html<&'static str> {
             const filesToUpload = Array.from(input.files);
             uploadInProgress = true;
             showUploadProgress();
-            setUploadProgress(0, '准备上传...', `共 ${filesToUpload.length} 个文件`);
+            setUploadProgress(0, t('upload.preparing', '准备上传...'), t('upload.total_files', '共 {count} 个文件', { count: filesToUpload.length }));
 
             try {
                 for (let i = 0; i < filesToUpload.length; i += 1) {
                     const file = filesToUpload[i];
                     await uploadOneFileWithProgress(ws.id, file, i + 1, filesToUpload.length);
                     const donePercent = ((i + 1) / filesToUpload.length) * 100;
-                    setUploadProgress(donePercent, `文件 ${i + 1}/${filesToUpload.length} 上传完成`, `等待服务端检索: ${file.name}`, true);
+                    setUploadProgress(
+                        donePercent,
+                        t('upload.file_uploaded', '文件 {current}/{total} 上传完成', { current: i + 1, total: filesToUpload.length }),
+                        t('upload.wait_indexing', '等待服务端检索: {file}', { file: file.name }),
+                        true
+                    );
                 }
-                setUploadProgress(100, '全部文件上传完成', '正在刷新数据...', false);
+                setUploadProgress(100, t('upload.all_uploaded', '全部文件上传完成'), t('upload.refreshing', '正在刷新数据...'), false);
                 loadStats();
                 if (currentQuery) {
                     search(currentQuery, currentPage);
@@ -1254,7 +1296,7 @@ async fn home_handler() -> Html<&'static str> {
                 }, 600);
             } catch (e) {
                 hideUploadProgress();
-                alert(`上传失败: ${e.message}`);
+                alert(`${t('upload.failed', '上传失败')}: ${e.message}`);
             } finally {
                 input.value = '';
                 uploadWorkspaceId = null;
