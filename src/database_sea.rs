@@ -129,6 +129,7 @@ async fn create_tables_if_not_exists(db: &DatabaseConnection) -> Result<(), DbEr
         "ALTER TABLE excel_data ADD COLUMN IF NOT EXISTS workspace_id INTEGER REFERENCES workspaces(id) ON DELETE CASCADE",
         "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS description TEXT",
         "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE",
+        "DROP INDEX IF EXISTS idx_excel_data_search_text",
     ];
 
     for sql in schema_upgrades {
@@ -150,7 +151,6 @@ async fn create_tables_if_not_exists(db: &DatabaseConnection) -> Result<(), DbEr
         "CREATE INDEX IF NOT EXISTS idx_files_uploaded_by ON files(uploaded_by)",
         "CREATE INDEX IF NOT EXISTS idx_excel_data_workspace_id ON excel_data(workspace_id)",
         "CREATE INDEX IF NOT EXISTS idx_excel_data_workspace_import_time ON excel_data(workspace_id, import_time DESC)",
-        "CREATE INDEX IF NOT EXISTS idx_excel_data_search_text ON excel_data(search_text)",
         "CREATE INDEX IF NOT EXISTS idx_excel_data_file_id ON excel_data(file_id)",
         "CREATE INDEX IF NOT EXISTS idx_excel_data_import_time ON excel_data(import_time)",
         "CREATE INDEX IF NOT EXISTS idx_excel_data_data_json ON excel_data USING GIN (data_json)",
