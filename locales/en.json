@@ -26,9 +26,9 @@
     "language": "Language"
   },
   "search": {
-    "placeholder": "Enter search keywords",
+    "placeholder": "Enter search keywords (use -keyword to exclude)",
     "button": "Search",
-    "tips": "💡 Search Tips: Use spaces to separate multiple keywords, e.g., \"John Smith\" matches content containing both words",
+    "tips": "💡 Search Tips: Use spaces to separate keywords, and use -keyword to exclude, e.g., \"ab -abc\"",
     "results": "Search Results",
     "no_results": "No matching results found",
     "total_records": "records",

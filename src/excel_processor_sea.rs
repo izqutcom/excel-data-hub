@@ -548,53 +548,79 @@ impl ExcelProcessor {
         workspace_id: Option<i32>,
         only_public_workspaces: bool,
     ) -> Result<Vec<((excel_data::Model, Option<files::Model>), i32)>, sea_orm::DbErr> {
-        let keywords: Vec<&str> = query_text
+        let query_tokens: Vec<&str> = query_text
             .trim()
             .split_whitespace()
             .filter(|k| !k.is_empty())
             .collect();
 
-        if keywords.is_empty() {
+        if query_tokens.is_empty() {
             return Ok(vec![]);
         }
 
-        let mut condition = Condition::any();
-        for keyword in &keywords {
-            condition = condition.add(excel_data::Column::SearchText.contains(*keyword));
+        let mut include_keywords = Vec::new();
+        let mut exclude_keywords = Vec::new();
+        for token in query_tokens {
+            if let Some(excluded) = token.strip_prefix('-') {
+                if !excluded.is_empty() {
+                    exclude_keywords.push(excluded);
+                }
+            } else {
+                include_keywords.push(token);
+            }
+        }
+
+        if include_keywords.is_empty() && exclude_keywords.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let mut query = excel_data::Entity::find().find_also_related(files::Entity);
+
+        if !include_keywords.is_empty() {
+            let mut include_condition = Condition::any();
+            for keyword in &include_keywords {
+                include_condition = include_condition.add(excel_data::Column::SearchText.contains(*keyword));
+            }
+            query = query.filter(include_condition);
         }
 
         if let Some(wid) = workspace_id {
-            condition = Condition::all()
-                .add(condition)
-                .add(excel_data::Column::WorkspaceId.eq(wid));
+            query = query.filter(excel_data::Column::WorkspaceId.eq(wid));
         } else if only_public_workspaces {
             let public_workspace_ids = self.get_public_workspace_ids().await?;
             if public_workspace_ids.is_empty() {
                 return Ok(vec![]);
             }
-            condition = Condition::all()
-                .add(condition)
-                .add(excel_data::Column::WorkspaceId.is_in(public_workspace_ids));
+            query = query.filter(excel_data::Column::WorkspaceId.is_in(public_workspace_ids));
         }
 
-        let all_results: Vec<(excel_data::Model, Option<files::Model>)> = excel_data::Entity::find()
-            .find_also_related(files::Entity)
-            .filter(condition)
+        let all_results: Vec<(excel_data::Model, Option<files::Model>)> = query
             .all(&self.db)
             .await?;
 
-        let mut scored_results: Vec<((excel_data::Model, Option<files::Model>), i32)> = all_results
+        let filtered_results: Vec<(excel_data::Model, Option<files::Model>)> = all_results
+            .into_iter()
+            .filter(|(excel_model, _)| {
+                let search_text = &excel_model.search_text;
+                !exclude_keywords.iter().any(|keyword| search_text.contains(*keyword))
+            })
+            .collect();
+
+        let mut scored_results: Vec<((excel_data::Model, Option<files::Model>), i32)> = filtered_results
             .into_iter()
             .map(|result| {
                 let search_text = &result.0.search_text;
                 let mut score = 0;
-                for keyword in &keywords {
+                for keyword in &include_keywords {
                     if search_text.contains(*keyword) {
                         score += 1;
                     }
                 }
-                if search_text.contains(query_text) {
-                    score += keywords.len() as i32;
+
+                // 对包含所有正向关键词的连续短语结果给予额外加分
+                let include_phrase = include_keywords.join(" ");
+                if !include_phrase.is_empty() && search_text.contains(&include_phrase) {
+                    score += include_keywords.len() as i32;
                 }
                 (result, score)
             })

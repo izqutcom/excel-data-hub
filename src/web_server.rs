@@ -530,7 +530,7 @@ async fn home_handler() -> Html<&'static str> {
                         <input type="text" id="searchInput" 
                                class="excel-search-bar w-full px-4 py-2 text-sm"
                                data-i18n-placeholder="search.placeholder"
-                               placeholder="在Excel数据中搜索... (支持多关键词，用空格分隔)" 
+                               placeholder="在Excel数据中搜索... (支持多关键词，排除词用 -关键词)" 
                                onkeypress="handleKeyPress(event)">
                         <div class="absolute inset-y-0 right-0 flex items-center pr-3">
                             <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -548,7 +548,7 @@ async fn home_handler() -> Html<&'static str> {
                 <!-- 搜索提示和按钮在同一行 -->
                 <div class="flex items-center justify-between">
                     <div class="search-tips px-3 py-2 text-sm">
-                        <span data-i18n="search.tips">💡 搜索提示：输入多个关键词用空格分隔，如"阿迪力 阿布拉"可匹配包含这两个词的内容</span>
+                        <span data-i18n="search.tips">💡 搜索提示：多个关键词用空格分隔，排除词用 -关键词，例如"ab -abc"</span>
                     </div>
                 </div>
             </div>
@@ -1402,7 +1402,10 @@ async fn home_handler() -> Html<&'static str> {
             `;
 
             // 处理多关键词搜索 - 提取关键词用于高亮显示
-            const keywords = query.trim().split(/\s+/).filter(k => k.length > 0);
+            const keywords = query
+                .trim()
+                .split(/\s+/)
+                .filter(k => k.length > 0 && !k.startsWith('-'));
 
             const workspaceParam = currentWorkspaceId ? `&workspace_id=${currentWorkspaceId}` : '';
             fetch(`/api/search?q=${encodeURIComponent(query)}&limit=${pageSize}&offset=${offset}${workspaceParam}`, {
